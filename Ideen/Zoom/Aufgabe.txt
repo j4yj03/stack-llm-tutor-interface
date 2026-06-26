@@ -1,0 +1,33 @@
+2.1 Beispielaufgabe
+Aufgabe:
+Bestimmen Sie die Ableitung von f(x) = -5*exp(x^2-2*exp(x));
+
+
+Erwartete korrekte Antwort:
+-5*exp(x^2-2*exp(x))*(2*x-2*exp(x))
+
+Thema:
+Ableitungen
+
+Unterthema:
+Kettenregel, Exponentialfunktion
+
+question_id:
+ableitung_kettenregel_exp_001
+
+
+
+
+Typischer Fehler:
+missing_chain_rule_inner_derivative
+wrong_derivative_inner_exp
+wrong_derivative_power
+missing_constant_factor
+sign_error
+only_inner_derivative
+syntax_error
+unknown_error
+
+
+
+

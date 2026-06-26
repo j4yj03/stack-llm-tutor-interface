@@ -1,0 +1,21 @@
+STACK-Aufgabe in Moodle
+        ↓
+Studierende geben ans1 ein
+        ↓
+STACK/PRT (Potential response trees) bewertet Antwort
+        ↓
+PRT-Feedback enthält AI-Tutor-Link
+        ↓
+Link übergibt qid, diagnosis, ans1
+        ↓
+FastAPI-App empfängt Parameter
+        ↓
+FastAPI-App lädt passende Aufgaben-JSON
+        ↓
+Aufgaben-JSON wird gegen JSON-Schema validiert
+        ↓
+Prompt wird gebaut
+        ↓
+lokales LLM über Ollama wird aufgerufen
+        ↓
+Tutorhinweis wird als Webseite angezeigt

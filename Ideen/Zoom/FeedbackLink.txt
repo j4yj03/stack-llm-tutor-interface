@@ -1,0 +1,45 @@
+4. Konkreter STACK-Feedback-Link
+Der Link steht im Feedback des jeweiligen PRT-Asts.
+
+Für den Diagnosefall:
+missing_product_rule_term
+könnte das Feedback so aussehen:
+
+html:
+<p>Ein Summand der Produktregel fehlt.</p>
+
+<a target="_blank"
+   rel="noopener noreferrer"
+   href="http://127.0.0.1:8000/start?qid=ableitung_produktregel_001&diagnosis=missing_product_rule_term&ans1={@tutor_ans1@}&hint_level=1">
+   AI Tutor öffnen
+</a>
+Für eine produktivere Umgebung wäre die URL entsprechend:
+
+html:
+<a target="_blank"
+   rel="noopener noreferrer"
+   href="https://ai-tutor.htw.example/start?qid=ableitung_produktregel_001&diagnosis=missing_product_rule_term&ans1={@tutor_ans1@}&hint_level=1">
+   AI Tutor öffnen
+</a>
+
+
+5. Beispiel für eine konkrete URL
+Wenn die Studierendenantwort lautet:
+
+text:
+2*x*cos(x)
+
+dann wird daraus:
+
+text:
+2%2Ax%2Acos%28x%29
+
+Der vollständige Link wäre dann:
+
+text:
+http://127.0.0.1:8000/start?qid=ableitung_produktregel_001&diagnosis=missing_product_rule_term&ans1=2%2Ax%2Acos%28x%29&hint_level=1
+
+FastAPI dekodiert daraus automatisch wieder:
+
+text
+ans1 = 2*x*cos(x)

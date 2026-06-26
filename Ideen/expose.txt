@@ -1,0 +1,666 @@
+# Exposé
+
+## Arbeitstitel
+
+**Prototypische Entwicklung eines lokalen LLM-basierten AI Tutors für Moodle-STACK-Aufgaben unter Nutzung strukturierter Fehlerdiagnosen**
+
+Alternativer Titel:
+
+**Kombination symbolischer STACK-Bewertung mit generativer KI-Unterstützung für mathematische Grundlagenaufgaben**
+
+---
+
+## 1. Thema und Ausgangslage
+
+Digitale Übungsaufgaben sind in mathematischen Grundlagenmodulen an Hochschulen weit verbreitet. Insbesondere Moodle in Verbindung mit dem Fragetyp **STACK** ermöglicht die automatische Bewertung mathematischer Eingaben auf Basis von Maxima. STACK kann algebraische Äquivalenz prüfen, typische Fehler über sogenannte **Potential Response Trees** diagnostizieren und differenziertes Feedback ausgeben.
+
+Gleichzeitig eröffnen große Sprachmodelle, sogenannte **Large Language Models** oder LLMs, neue Möglichkeiten für adaptive Lernunterstützung. Sie können Erklärungen formulieren, Rückfragen stellen und Hinweise sprachlich an die Lernenden anpassen. Problematisch ist jedoch, dass LLMs mathematische Antworten nicht immer zuverlässig bewerten und teilweise zu viel Lösung verraten.
+
+Die geplante Arbeit setzt genau an dieser Schnittstelle an. Die mathematische Bewertung soll weiterhin durch STACK erfolgen. Ein externer AI Tutor soll die von STACK erzeugten strukturierten Diagnosedaten nutzen, um kurze, didaktisch sinnvolle Hinweise zu erzeugen. Die Moodle-Instanz soll im Prototyp nicht verändert werden. Stattdessen wird in ausgewählten STACK-Aufgaben ein Feedback-Link integriert, der relevante Informationen an einen externen AI-Tutor-Server übergibt.
+
+Die Grundidee lautet:
+
+> **STACK bewertet die mathematische Antwort. Der AI Tutor erklärt, unterstützt und gibt adaptive Hinweise.**
+
+Als Beispielaufgabe dient unter anderem eine Ableitungsaufgabe zur Kettenregel:
+
+\[
+f(x)=-5e^{x^2-2e^x}
+\]
+
+In STACK-/Maxima-Syntax:
+
+```maxima
+f : -5*exp(x^2-2*exp(x));
+```
+
+Ein typischer Fehler wäre etwa, die innere Ableitung der Kettenregel nicht zu berücksichtigen. STACK kann diesen Fehler über einen Diagnosecode klassifizieren, z. B.:
+
+```text
+missing_chain_rule_inner_derivative
+```
+
+Der AI Tutor erhält dann über einen Link Informationen wie:
+
+```text
+question_id
+diagnosis
+ans1
+```
+
+und erzeugt daraus mithilfe einer Aufgaben-JSON, einer Tutor-Policy und eines lokalen LLMs einen passenden Hinweis.
+
+---
+
+## 2. Problemstellung
+
+STACK bietet bereits mathematisch präzise Bewertungsmöglichkeiten und kann Fehler klassifizieren. Das Feedback in STACK ist jedoch häufig statisch und muss für jeden Fehlerfall manuell formuliert werden. LLMs können hingegen flexibel formulieren, sind aber ohne strukturierte mathematische Diagnose anfällig für Fehlinterpretationen oder Lösungsverrat.
+
+Daraus ergibt sich ein Spannungsfeld:
+
+- STACK ist mathematisch zuverlässig, aber sprachlich und didaktisch begrenzt flexibel.
+- LLMs sind sprachlich flexibel, aber mathematisch nicht immer zuverlässig.
+- Lernende benötigen gezielte Hilfen, ohne sofort die vollständige Lösung zu erhalten.
+- Eine produktive Moodle-Integration wäre aufwendig; ein prototypischer Ansatz ohne Moodle-Anpassung ist daher attraktiv.
+
+Die Arbeit untersucht, wie diese Systeme sinnvoll kombiniert werden können.
+
+---
+
+## 3. Forschungsfrage
+
+Die zentrale Forschungsfrage lautet:
+
+> **Wie kann ein lokaler LLM-basierter AI Tutor prototypisch an Moodle-STACK-Aufgaben angebunden werden, sodass strukturierte STACK-Diagnosedaten zur Generierung adaptiver mathematischer Hinweise genutzt werden können?**
+
+Daraus ergeben sich mehrere Teilfragen:
+
+1. **Technische Machbarkeit**  
+   Wie lässt sich ein AI Tutor ohne Änderung der Moodle-Instanz über STACK-Feedback-Links anbinden?
+
+2. **Datenmodellierung**  
+   Wie müssen Aufgabeninformationen, Diagnosecodes, Tutor-Regeln und Hilfestufen strukturiert werden, damit ein LLM daraus sinnvolle Hinweise erzeugen kann?
+
+3. **Qualität der Tutorhinweise**  
+   Inwiefern erzeugt ein lokales LLM auf Basis strukturierter STACK-Diagnosen fachlich korrekte, verständliche und didaktisch hilfreiche Hinweise?
+
+4. **Lösungsverrat**  
+   Wie zuverlässig lässt sich durch Prompt-Design, Tutor-Policy und Hilfestufen verhindern, dass das LLM vollständige Lösungen ausgibt?
+
+5. **Nutzen strukturierter Diagnosen**  
+   Verbessern strukturierte PRT-Diagnosecodes die Qualität der KI-generierten Hinweise gegenüber einer Übergabe von Aufgabe und Studierendenantwort allein?
+
+---
+
+## 4. Zielsetzung
+
+Ziel der Arbeit ist die Entwicklung und Evaluation eines prototypischen AI Tutors für ausgewählte STACK-Aufgaben in mathematischen Grundlagenmodulen.
+
+Der Prototyp soll zeigen, dass:
+
+- STACK weiterhin die mathematische Bewertung übernimmt,
+- strukturierte Diagnosecodes aus STACK an einen externen Tutor-Server übergeben werden können,
+- Aufgabeninformationen serverseitig als JSON-Dateien verwaltet werden können,
+- JSON-Schema-Dateien zur Validierung der Aufgaben-Datenbank eingesetzt werden können,
+- ein lokales LLM über eine API, z. B. Ollama, didaktische Hinweise erzeugen kann,
+- die Tutorantworten hinsichtlich fachlicher Korrektheit, Hilfreichkeit und Lösungsverrat bewertet werden können.
+
+Nicht Ziel der Arbeit ist eine produktive, vollständig abgesicherte Moodle-Plugin-Entwicklung. Der Fokus liegt auf einem lauffähigen Prototyp und der wissenschaftlichen Untersuchung des Zusammenspiels von STACK-Diagnosen und LLM-generierten Hilfen.
+
+---
+
+## 5. Geplantes Systemkonzept
+
+Das Minimalsetting sieht wie folgt aus:
+
+```text
+STACK-Aufgabe in Moodle
+        ↓
+Studierende geben Antwort ans1 ein
+        ↓
+STACK/PRT bewertet die Antwort
+        ↓
+Feedback enthält Link „AI Tutor“
+        ↓
+Link übergibt:
+    qid
+    diagnosis
+    ans1
+        ↓
+FastAPI-Server empfängt Anfrage
+        ↓
+Aufgaben-JSON wird geladen und validiert
+        ↓
+Prompt wird erzeugt
+        ↓
+lokales LLM wird über Ollama aufgerufen
+        ↓
+Tutorhinweis wird angezeigt
+```
+
+Beispielhafter Link:
+
+```html
+<a target="_blank"
+   rel="noopener noreferrer"
+   href="http://127.0.0.1:8000/start?qid=ableitung_kettenregel_exp_001&diagnosis=missing_chain_rule_inner_derivative&ans1={@tutor_ans1@}&hint_level=1">
+   AI Tutor öffnen
+</a>
+```
+
+Die Studierendenantwort wird dabei URL-kodiert übertragen. Die eigentlichen Aufgabendaten liegen auf dem AI-Tutor-Server, z. B. als:
+
+```text
+tasks/ableitung_kettenregel_exp_001.json
+```
+
+Diese Aufgaben-JSON enthält unter anderem:
+
+```text
+question_id
+Aufgabentext
+Thema
+Lernziele
+Musterlösung
+typische Fehler
+Diagnosecodes
+Tutor-Policy
+Hilfestufen
+```
+
+Ein JSON-Schema stellt sicher, dass alle Aufgaben-Dateien formal korrekt und einheitlich aufgebaut sind.
+
+---
+
+## 6. Methodisches Vorgehen
+
+Die Arbeit kombiniert einen entwicklungsorientierten Prototyping-Ansatz mit einer technischen und fachlich-didaktischen Evaluation.
+
+### 6.1 Anforderungsanalyse
+
+Zunächst werden die Anforderungen an den Prototyp erhoben:
+
+- Welche Informationen können aus STACK heraus übergeben werden?
+- Welche Daten müssen auf dem AI-Tutor-Server vorliegen?
+- Welche Diagnosecodes sind für ausgewählte Aufgabentypen sinnvoll?
+- Welche Anforderungen bestehen an Tutorhinweise?
+- Welche Einschränkungen ergeben sich durch Datenschutz, URL-Parameter und Prompt-Injection?
+
+Das Ergebnis ist ein Anforderungskatalog für die technische Umsetzung.
+
+---
+
+### 6.2 Auswahl eines mathematischen Themenbereichs
+
+Für den Prototyp wird ein begrenzter mathematischer Themenbereich gewählt, voraussichtlich:
+
+```text
+Ableitungen
+Kettenregel
+Exponentialfunktionen
+Produktregel
+```
+
+Beispielaufgabe:
+
+\[
+f(x)=-5e^{x^2-2e^x}
+\]
+
+Typische Fehler:
+
+```text
+missing_chain_rule_inner_derivative
+wrong_derivative_inner_exp
+wrong_derivative_power
+missing_constant_factor
+sign_error
+only_inner_derivative
+syntax_error
+unknown_error
+```
+
+---
+
+### 6.3 Entwicklung eines Aufgaben-Datenmodells
+
+Die Aufgabeninformationen werden als JSON-Dateien modelliert. Zusätzlich wird ein JSON-Schema entwickelt, das die Struktur validiert.
+
+Das Schema stellt sicher, dass jede Aufgabe zentrale Informationen enthält:
+
+```text
+question_id
+question_text
+learning_goals
+student_inputs
+model_solution
+diagnoses
+tutor_policy
+hint_levels
+prompt_context_policy
+```
+
+Die JSON-Schema-Datei dient dabei als:
+
+- Validierungsinstrument,
+- technische Dokumentation,
+- Hilfsmittel zur Qualitätssicherung,
+- Grundlage für konsistente Aufgabenpflege.
+
+---
+
+### 6.4 Anreicherung der STACK-Aufgaben
+
+Ausgewählte STACK-Aufgaben werden so erweitert, dass im Feedback ein AI-Tutor-Link angezeigt wird.
+
+In STACK werden dafür unter anderem definiert:
+
+```maxima
+tutor_qid : "ableitung_kettenregel_exp_001";
+```
+
+sowie eine einfache URL-Encoding-Funktion für `ans1`.
+
+Im PRT werden Diagnosecodes für typische Fehlerfälle vergeben. Jeder Diagnosecode wird mit einem Link zum AI Tutor verbunden.
+
+---
+
+### 6.5 Implementierung der AI-Tutor-Applikation
+
+Der Prototyp wird voraussichtlich mit **Python** und **FastAPI** umgesetzt.
+
+Die Applikation soll folgende Aufgaben übernehmen:
+
+1. HTTP-Anfragen aus STACK entgegennehmen,
+2. Parameter `qid`, `diagnosis`, `ans1` und `hint_level` lesen,
+3. Parameter validieren,
+4. passende Aufgaben-JSON laden,
+5. Aufgaben-JSON gegen JSON-Schema prüfen,
+6. Diagnosecode interpretieren,
+7. Prompt erzeugen,
+8. lokales LLM über Ollama aufrufen,
+9. Tutorantwort anzeigen.
+
+Geplante Dateistruktur:
+
+```text
+ai-tutor-prototype/
+  requirements.txt
+  app/
+    main.py
+    task_loader.py
+    prompt_builder.py
+    ollama_client.py
+    templates/
+      tutor_page.html
+  tasks/
+    ableitung_kettenregel_exp_001.json
+  schemas/
+    stack_ai_tutor_task.schema.json
+```
+
+---
+
+### 6.6 Prompt-Design
+
+Der Prompt wird so gestaltet, dass das LLM:
+
+- die Antwort nicht selbst bewertet,
+- STACK als mathematische Bewertungsinstanz akzeptiert,
+- die Diagnose als gegebene Information nutzt,
+- keine vollständige Lösung auf der ersten Hilfestufe ausgibt,
+- möglichst eine aktivierende Rückfrage stellt,
+- die Studierendenantwort als nicht vertrauenswürdige Eingabe behandelt.
+
+Beispielhafte Prompt-Anweisung:
+
+```text
+Bewerte die Studierendenantwort nicht selbst.
+Die mathematische Diagnose wurde bereits von STACK geliefert.
+Gib keine vollständige Lösung aus.
+Formuliere genau einen kurzen hilfreichen Hinweis.
+Stelle möglichst eine aktivierende Rückfrage.
+```
+
+---
+
+### 6.7 Evaluation
+
+Die Evaluation erfolgt auf zwei Ebenen.
+
+#### Technische Evaluation
+
+Untersucht wird, ob der Prototyp zuverlässig funktioniert:
+
+- Funktioniert der Feedback-Link aus STACK?
+- Wird `ans1` korrekt URL-kodiert übertragen?
+- Werden `qid` und `diagnosis` korrekt erkannt?
+- Wird die Aufgaben-JSON korrekt geladen?
+- Funktioniert die JSON-Schema-Validierung?
+- Wird der Prompt korrekt erzeugt?
+- Funktioniert der Ollama-Aufruf?
+- Wie lang sind die Antwortzeiten?
+
+#### Fachlich-didaktische Evaluation
+
+Für mehrere Aufgaben-Fehler-Kombinationen werden Tutorantworten erzeugt und bewertet.
+
+Mögliche Kriterien:
+
+| Kriterium | Beschreibung |
+|---|---|
+| Fachliche Korrektheit | Enthält der Hinweis mathematisch korrekte Aussagen? |
+| Passung zur Diagnose | Geht der Hinweis auf den konkreten Fehler ein? |
+| Didaktische Qualität | Unterstützt der Hinweis den nächsten Lernschritt? |
+| Verständlichkeit | Ist der Hinweis sprachlich klar? |
+| Kürze | Ist der Hinweis nicht unnötig lang? |
+| Kein Lösungsverrat | Wird die vollständige Lösung vermieden? |
+| Aktivierung | Wird eine sinnvolle Rückfrage gestellt? |
+| Deutschqualität | Ist die Formulierung angemessen? |
+
+Die Bewertung kann durch Lehrende oder Tutor*innen auf einer Likert-Skala von 1 bis 5 erfolgen.
+
+Optional kann ein Vergleich verschiedener Kontextbedingungen erfolgen:
+
+```text
+A: Aufgabe + Studierendenantwort
+B: Aufgabe + Studierendenantwort + normales STACK-Feedback
+C: Aufgabe + Studierendenantwort + strukturierter Diagnosecode
+```
+
+Hypothese:
+
+> Strukturierte Diagnosecodes führen zu gezielteren, fachlich zuverlässigeren und didaktisch passenderen Tutorhinweisen.
+
+---
+
+## 7. Quellenlage und theoretischer Hintergrund
+
+Die Arbeit bewegt sich an der Schnittstelle von E-Assessment, computeralgebra-basierter Bewertung, intelligenten Tutorsystemen und generativer KI.
+
+### 7.1 Moodle und STACK
+
+Für die technische und didaktische Einordnung von STACK sind insbesondere die offizielle STACK-Dokumentation sowie Arbeiten zu computeralgebra-basiertem Assessment relevant. STACK ist im mathematischen E-Assessment etabliert und ermöglicht differenziertes Feedback über Potential Response Trees.
+
+Relevante Themen:
+
+- automatische Bewertung mathematischer Eingaben,
+- Maxima-basierte Äquivalenzprüfung,
+- Potential Response Trees,
+- Feedbackgestaltung in mathematischen Online-Aufgaben.
+
+Mögliche Quellen:
+
+- STACK Documentation, University of Edinburgh / STACK Project
+- Sangwin, C. J.: *Computer Aided Assessment of Mathematics*
+- Sangwin, C. J.: Arbeiten zu STACK und mathematischem E-Assessment
+
+---
+
+### 7.2 Feedback und formative Assessment
+
+Da der AI Tutor adaptive Hinweise erzeugen soll, ist Literatur zu Feedback und formativer Bewertung zentral.
+
+Relevante Themen:
+
+- lernförderliches Feedback,
+- gestufte Hinweise,
+- formative Assessment,
+- Selbstregulation und Aktivierung durch Rückfragen.
+
+Mögliche Quellen:
+
+- Hattie, J.; Timperley, H.: *The Power of Feedback*
+- Shute, V. J.: *Focus on Formative Feedback*
+- Nicol, D.; Macfarlane-Dick, D.: formative assessment and self-regulated learning
+
+---
+
+### 7.3 Intelligent Tutoring Systems und AI Tutoring
+
+Die Arbeit knüpft an Konzepte intelligenter Tutorsysteme an, unterscheidet sich jedoch dadurch, dass die mathematische Diagnose nicht vom LLM, sondern von STACK geliefert wird.
+
+Relevante Themen:
+
+- adaptive Hilfen,
+- tutorielle Dialoge,
+- Scaffoldings,
+- Fehlermodellierung,
+- Knowledge Tracing und Feedbackstrategien.
+
+Mögliche Quellen:
+
+- VanLehn, K.: *The Relative Effectiveness of Human Tutoring, Intelligent Tutoring Systems, and Other Tutoring Systems*
+- Graesser et al.: AutoTutor
+- Koedinger et al.: Cognitive Tutors
+
+---
+
+### 7.4 Large Language Models in der Bildung
+
+LLMs werden zunehmend im Bildungskontext diskutiert. Relevant sind insbesondere Arbeiten zu Chancen und Risiken generativer KI im Lernen.
+
+Relevante Themen:
+
+- LLMs als Tutorensysteme,
+- Halluzinationen,
+- Prompting,
+- Lösungsverrat,
+- Datenschutz,
+- lokale Modelle,
+- Evaluation von KI-generierten Lernhilfen.
+
+Mögliche Quellen:
+
+- Kasneci et al.: *ChatGPT for Good? On Opportunities and Challenges of Large Language Models for Education*
+- OpenAI / Anthropic / Google technische Berichte zu LLMs
+- Arbeiten zu LLM-based tutoring und educational feedback
+- Literatur zu Prompt Engineering und Retrieval-Augmented Generation
+
+---
+
+### 7.5 Datenschutz und lokale KI
+
+Da der Tutor mit lokalen LLMs betrieben werden soll, sind auch Datenschutz- und Infrastrukturfragen relevant.
+
+Relevante Themen:
+
+- personenbezogene Daten in Lernplattformen,
+- Verarbeitung von Studierendenantworten,
+- lokale Modellinferenz,
+- Vermeidung externer Cloud-Dienste,
+- Logging und Pseudonymisierung.
+
+Mögliche Quellen:
+
+- DSGVO-Grundlagen,
+- hochschulinterne Datenschutzrichtlinien,
+- Empfehlungen zu Learning Analytics und Datenschutz.
+
+---
+
+## 8. Erwarteter Beitrag der Arbeit
+
+Die Arbeit soll zeigen, wie sich ein symbolisch-mathematisches Bewertungssystem und ein generatives Sprachmodell sinnvoll kombinieren lassen.
+
+Der Beitrag liegt in vier Bereichen:
+
+1. **Technischer Beitrag**  
+   Entwicklung eines lauffähigen Prototyps zur Anbindung eines AI Tutors an STACK-Aufgaben ohne Moodle-Kernänderung.
+
+2. **Datenmodell-Beitrag**  
+   Entwurf eines JSON-basierten Aufgabenformats inklusive JSON-Schema zur Validierung.
+
+3. **Didaktischer Beitrag**  
+   Entwicklung einer Tutor-Policy mit Hilfestufen zur Reduktion von Lösungsverrat und zur Förderung aktivierender Hinweise.
+
+4. **Evaluativer Beitrag**  
+   Untersuchung der Qualität von LLM-generierten Hinweisen auf Basis strukturierter STACK-Diagnosen.
+
+---
+
+## 9. Abgrenzung
+
+Die Arbeit grenzt sich bewusst von folgenden Punkten ab:
+
+- keine vollständige Moodle-Plugin-Entwicklung,
+- keine produktive Authentifizierungs- und Rechteverwaltung,
+- keine umfassende Learning-Analytics-Infrastruktur,
+- keine automatische mathematische Bewertung durch das LLM,
+- keine groß angelegte Studierendenstudie als zwingender Bestandteil.
+
+Stattdessen steht ein prototypischer, wissenschaftlich evaluierbarer Demonstrator im Mittelpunkt.
+
+---
+
+## 10. Risiken und Herausforderungen
+
+Mögliche Herausforderungen sind:
+
+| Herausforderung | Umgang damit |
+|---|---|
+| URL-Encoding mathematischer Eingaben | Basis-Encoding für Prototyp, Diskussion produktiver Alternativen |
+| Manipulierbare URL-Parameter | Serverseitige Validierung, Ausblick auf signierte Links |
+| Prompt-Injection über Studierendenantwort | Markierung als untrusted input |
+| Lösungsverrat durch LLM | Hint-Level, Tutor-Policy, Musterlösung nicht auf Level 1 |
+| Uneinheitliche Aufgabenmetadaten | JSON-Schema-Validierung |
+| LLM-Antwortzeiten | technische Messung, Modellvergleich |
+| Fachliche Fehler in Tutorantworten | Expert Review und restriktives Prompting |
+| Datenschutz | lokale Modelle, keine personenbezogenen Daten im Link |
+
+---
+
+## 11. Zeitplan
+
+Ein möglicher Zeitplan für eine Bearbeitungsdauer von etwa sechs Monaten:
+
+| Phase | Zeitraum | Inhalt |
+|---|---:|---|
+| 1. Einarbeitung und Literaturrecherche | Woche 1–3 | STACK, PRTs, LLM-Tutoring, Feedbackliteratur |
+| 2. Anforderungsanalyse und Konzept | Woche 4–5 | Systemarchitektur, Datenfluss, Evaluationsdesign |
+| 3. Aufgaben- und Diagnosemodell | Woche 6–7 | Auswahl von Beispielaufgaben, Diagnosecodes, JSON-Struktur |
+| 4. JSON-Schema und Aufgaben-Datenbank | Woche 8–9 | Erstellung des Schemas und erster Aufgaben-JSONs |
+| 5. STACK-Anreicherung | Woche 10–11 | Feedback-Link, URL-Encoding, PRT-Diagnosen |
+| 6. FastAPI-Prototyp | Woche 12–15 | Server, Task Loader, Prompt Builder, Ollama-Anbindung |
+| 7. Prompt-Design und Tutor-Policy | Woche 16–17 | Hilfestufen, Lösungsverrat-Strategien, Promptvarianten |
+| 8. Technische Tests | Woche 18–19 | Parameterübergabe, Validierung, Antwortzeiten |
+| 9. Fachlich-didaktische Evaluation | Woche 20–22 | Generierung und Bewertung von Tutorantworten |
+| 10. Auswertung | Woche 23–24 | Analyse der Ergebnisse, Tabellen, Diskussion |
+| 11. Schreiben der Arbeit | Woche 25–28 | Haupttext, Methodik, Ergebnisse, Diskussion |
+| 12. Überarbeitung und Abgabe | Woche 29–30 | Korrektur, Formatierung, finale Abgabe |
+
+Falls weniger Zeit zur Verfügung steht, kann die Evaluation auf eine technische Evaluation und ein kleines Expert Review reduziert werden.
+
+---
+
+## 12. Vorläufige Gliederung
+
+### 1. Einleitung
+
+1.1 Motivation  
+1.2 Problemstellung  
+1.3 Ziel der Arbeit  
+1.4 Forschungsfragen  
+1.5 Aufbau der Arbeit  
+
+---
+
+### 2. Grundlagen
+
+2.1 Digitale mathematische Übungsaufgaben  
+2.2 Moodle und STACK  
+2.3 Potential Response Trees und Fehlerdiagnosen  
+2.4 Feedback in mathematischen Lernsystemen  
+2.5 Large Language Models im Bildungskontext  
+2.6 Lokale LLMs und Datenschutzaspekte  
+
+---
+
+### 3. Konzept des AI Tutors
+
+3.1 Rollenverteilung zwischen STACK und LLM  
+3.2 Systemarchitektur  
+3.3 Datenfluss zwischen STACK und AI-Tutor-Server  
+3.4 Aufgaben-Datenmodell  
+3.5 JSON-Schema zur Validierung  
+3.6 Tutor-Policy und Hilfestufen  
+3.7 Sicherheits- und Datenschutzüberlegungen  
+
+---
+
+### 4. Prototypische Implementierung
+
+4.1 Auswahl der Beispielaufgaben  
+4.2 Anreicherung der STACK-Aufgaben  
+4.3 URL-Encoding und Feedback-Link  
+4.4 Aufbau der Aufgaben-JSON  
+4.5 Implementierung des FastAPI-Servers  
+4.6 Prompt-Builder  
+4.7 Anbindung an Ollama und lokale LLMs  
+4.8 Darstellung der Tutorantworten  
+
+---
+
+### 5. Evaluation
+
+5.1 Evaluationsdesign  
+5.2 Technische Testfälle  
+5.3 Bewertungsraster für Tutorhinweise  
+5.4 Vergleich von Promptvarianten  
+5.5 Optionaler Modellvergleich  
+5.6 Durchführung der Evaluation  
+
+---
+
+### 6. Ergebnisse
+
+6.1 Ergebnisse der technischen Evaluation  
+6.2 Qualität der Tutorhinweise  
+6.3 Auftreten von Lösungsverrat  
+6.4 Nutzen strukturierter Diagnosecodes  
+6.5 Beobachtungen zu Antwortzeiten und Stabilität  
+
+---
+
+### 7. Diskussion
+
+7.1 Interpretation der Ergebnisse  
+7.2 Stärken des Ansatzes  
+7.3 Grenzen des Prototyps  
+7.4 Risiken bei produktivem Einsatz  
+7.5 Datenschutz und Sicherheit  
+7.6 Weiterentwicklungsmöglichkeiten  
+
+---
+
+### 8. Fazit und Ausblick
+
+8.1 Zusammenfassung  
+8.2 Beantwortung der Forschungsfragen  
+8.3 Beitrag der Arbeit  
+8.4 Ausblick auf Moodle-Plugin, Token-Architektur und größere Evaluation  
+
+---
+
+## 13. Vorläufige Literaturliste
+
+Die folgende Literaturliste ist vorläufig und muss im weiteren Verlauf konkretisiert werden.
+
+- Hattie, J.; Timperley, H. (2007): *The Power of Feedback*. Review of Educational Research.
+- Kasneci, E. et al. (2023): *ChatGPT for Good? On Opportunities and Challenges of Large Language Models for Education*. Learning and Individual Differences.
+- Nicol, D. J.; Macfarlane-Dick, D. (2006): *Formative assessment and self-regulated learning: A model and seven principles of good feedback practice*. Studies in Higher Education.
+- Sangwin, C. J. (2013): *Computer Aided Assessment of Mathematics*. Oxford University Press.
+- Shute, V. J. (2008): *Focus on Formative Feedback*. Review of Educational Research.
+- VanLehn, K. (2011): *The Relative Effectiveness of Human Tutoring, Intelligent Tutoring Systems, and Other Tutoring Systems*. Educational Psychologist.
+- STACK Documentation: Offizielle Dokumentation des STACK-Projekts.
+- Moodle Documentation: Dokumentation zu Moodle-Fragetypen und Quizsystem.
+- Ollama Documentation: Dokumentation zur lokalen Ausführung und API-Anbindung von LLMs.
+- JSON Schema Documentation: Spezifikation und Dokumentation zur Validierung von JSON-Datenstrukturen.
+
+---
+
+## 14. Kurzfassung des Exposés
+
+Die Arbeit entwickelt einen prototypischen AI Tutor für Moodle-STACK-Aufgaben in mathematischen Grundlagenmodulen. STACK übernimmt weiterhin die mathematische Bewertung und liefert strukturierte Diagnosecodes. Ein externer FastAPI-Server empfängt diese Diagnose, die Studierendenantwort und eine Aufgaben-ID über einen Feedback-Link. Auf dem Server werden passende Aufgabeninformationen aus JSON-Dateien geladen, gegen ein JSON-Schema validiert und zu einem Prompt für ein lokales LLM verarbeitet. Das LLM erzeugt daraufhin kurze adaptive Hinweise, ohne selbst mathematisch zu bewerten.
+
+Untersucht wird, ob strukturierte STACK-Diagnosen die Qualität LLM-generierter Tutorhinweise verbessern und wie sich Lösungsverrat durch Prompt-Design, Tutor-Policy und Hilfestufen reduzieren lässt. Die Evaluation umfasst technische Tests sowie eine fachlich-didaktische Bewertung der generierten Hinweise.

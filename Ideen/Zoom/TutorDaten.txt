@@ -1,0 +1,11 @@
+3.3 Tutor-Metadaten in STACK
+In den Question variables kannst du feste Tutor-Daten definieren:
+
+maxima:
+tutor_qid : "ableitung_produktregel_001";
+Die konkrete Studierendenantwort ans1 steht erst nach der Eingabe zur Verfügung. Deshalb ist es sauberer, die kodierte Antwort im PRT-Kontext bzw. in den Feedback-Variablen zu erzeugen.
+
+Zum Beispiel in den PRT feedback variables:
+
+maxima:
+tutor_ans1 : urlencode_basic(ans1);

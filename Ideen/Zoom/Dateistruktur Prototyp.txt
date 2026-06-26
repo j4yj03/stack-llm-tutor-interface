@@ -1,0 +1,14 @@
+ai-tutor-prototype/
+  requirements.txt
+  app/
+    __init__.py
+    main.py
+    task_loader.py
+    prompt_builder.py
+    ollama_client.py
+    templates/
+      tutor_page.html
+  tasks/
+    ableitung_produktregel_001.json
+  schemas/
+    stack_ai_tutor_task.schema.json

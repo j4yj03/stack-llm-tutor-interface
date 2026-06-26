@@ -1,0 +1,16 @@
+http://127.0.0.1:8000/start?qid=ableitung_produktregel_001&diagnosis=missing_product_rule_term&ans1=2%2Ax%2Acos%28x%29&hint_level=1
+
+
+
+dekodierte Parameter:
+qid:
+ableitung_produktregel_001
+
+diagnosis:
+missing_product_rule_term
+
+ans1:
+2*x*cos(x)
+
+hint_level:
+1

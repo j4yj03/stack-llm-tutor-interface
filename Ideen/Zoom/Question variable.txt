@@ -1,0 +1,30 @@
+f : -5*exp(x^2-2*exp(x));
+df : diff(f,x);
+
+tutor_qid : "ableitung_kettenregel_exp_001";
+
+urlencode_basic(s) := block(
+  [r],
+  r : string(s),
+
+  /* Prozentzeichen zuerst kodieren */
+  r : ssubst("%25", "%", r),
+
+  r : ssubst("%20", " ", r),
+  r : ssubst("%2B", "+", r),
+  r : ssubst("%26", "&", r),
+  r : ssubst("%3D", "=", r),
+  r : ssubst("%3F", "?", r),
+  r : ssubst("%23", "#", r),
+  r : ssubst("%2F", "/", r),
+  r : ssubst("%5E", "^", r),
+  r : ssubst("%28", "(", r),
+  r : ssubst("%29", ")", r),
+  r : ssubst("%2A", "*", r),
+  r : ssubst("%2C", ",", r),
+
+  r
+)$
+
+
+tutor_ans1 : urlencode_basic(ans1);

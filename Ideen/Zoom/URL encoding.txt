@@ -1,0 +1,27 @@
+Diese Funktion ist für einen Prototyp ausreichend, aber nicht vollständig RFC-3986-konform.
+
+Sie kann z. B. in STACK in den Question variables oder, falls nötig, in den PRT feedback variables definiert werden.
+
+
+urlencode_basic(s) := block(
+  [r],
+  r : string(s),
+
+  /* Reihenfolge wichtig: Prozentzeichen zuerst kodieren */
+  r : ssubst("%25", "%", r),
+
+  r : ssubst("%20", " ", r),
+  r : ssubst("%2B", "+", r),
+  r : ssubst("%26", "&", r),
+  r : ssubst("%3D", "=", r),
+  r : ssubst("%3F", "?", r),
+  r : ssubst("%23", "#", r),
+  r : ssubst("%2F", "/", r),
+  r : ssubst("%5E", "^", r),
+  r : ssubst("%28", "(", r),
+  r : ssubst("%29", ")", r),
+  r : ssubst("%2A", "*", r),
+  r : ssubst("%2C", ",", r),
+
+  r
+)$
