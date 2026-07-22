@@ -1,0 +1,41 @@
+URL in questiontext -> check encoding possibilities
+
+
+pilot
+
+maxima
+explore capas without PRT
+rag only works for text. math? out of the box solution ? otherwise skip
+math notation as embedding?
+N8N - automation
+self hosted instead local
+
+tutor an HS mgadeburg ZAKKI / KI&ME
+
+
+define tutor role and not restrict information.
+
+
+technische evaluation
+
+
+think aloud evaluation with 3 students
+
+
+
+Zeitplan 19 wochen
+
+corpus (set of questions)
+calculus - differential eq
+
+
+res question:
+architecti as whole - how to set up stack, tutor, llm
+
+
+
+to next meeting:
+check encoding URL/connection stack tutor
+milestones in git and exposé
+
+
