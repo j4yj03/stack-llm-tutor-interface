@@ -2,3 +2,10 @@
 code/.ipynb_checkpoints/*
 code/app/__pycache__/*
 
+code/app/__pycache__/__init__.cpython-39.pyc
+code/app/__pycache__/main.cpython-39.pyc
+code/app/__pycache__/ollama_client.cpython-39.pyc
+code/app/__pycache__/prompt_builder.cpython-39.pyc
+code/app/__pycache__/task_loader.cpython-39.pyc
+docs/expose_3_english.pdf
+docs/expose_3.pdf
