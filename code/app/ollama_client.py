@@ -1,21 +1,26 @@
 """
+Client für die Ollama-API der HTW Berlin.
 
-qwen3.6:27b bietet Completion, Tool-Nutzung und Thinking, hat 27,8 Milliarden Parameter und ein Kontextfenster von 262.144 Tokens. 
-Damit ist es ein guter Kompromiss aus Qualität, mathematischem Reasoning und Antwortzeit.
-Als größeres Vergleichsmodell eignet sich mistral-medium-3.5:128b. Es unterstützt ebenfalls Completion, Tools und Thinking, ist mit 127,7 Milliarden Parametern aber deutlich ressourcenintensiver.
+Standardmodell:
+qwen3.6:27b
 
+Das Modell unterstützt Completion, Tool-Nutzung und Thinking.
+Es besitzt 27,8 Milliarden Parameter und ein Kontextfenster
+von 262.144 Tokens.
 """
 
 import os
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests import Response
+from requests.adapters import HTTPAdapter
 
 
 OLLAMA_BASE_URL = os.getenv(
     "OLLAMA_BASE_URL",
     "https://f2ki-h100-1.f2.htw-berlin.de:11435"
-)
+).rstrip("/")
 
 DEFAULT_MODEL = os.getenv(
     "OLLAMA_MODEL",
@@ -26,48 +31,86 @@ REQUEST_TIMEOUT = int(
     os.getenv("OLLAMA_TIMEOUT", "180")
 )
 
+MAX_ERROR_BODY_LENGTH = 1000
+
 
 class OllamaClientError(RuntimeError):
     """Fehler beim Zugriff auf die Ollama-API."""
 
 
-def _post(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    url = f"{OLLAMA_BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+SESSION = requests.Session()
+SESSION.mount(
+    "https://",
+    HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=10,
+        max_retries=0
+    )
+)
+
+
+def _parse_json_response(response: Response) -> Dict[str, Any]:
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise OllamaClientError(
+            "Ollama lieferte keine gültige JSON-Antwort: "
+            f"{response.text[:MAX_ERROR_BODY_LENGTH]}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise OllamaClientError(
+            "Ollama lieferte kein JSON-Objekt."
+        )
+
+    return data
+
+
+def _post(
+    endpoint: str,
+    payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    url = f"{OLLAMA_BASE_URL}/{endpoint.lstrip('/')}"
 
     try:
-        response = requests.post(
+        response = SESSION.post(
             url,
             json=payload,
             timeout=REQUEST_TIMEOUT,
             verify=True
         )
         response.raise_for_status()
+
     except requests.exceptions.SSLError as exc:
         raise OllamaClientError(
             f"SSL-Fehler beim Zugriff auf {url}. "
-            "Das Zertifikat sollte nicht durch verify=False umgangen werden."
+            "Die Zertifikatsprüfung sollte nicht durch "
+            "verify=False deaktiviert werden."
         ) from exc
+
     except requests.exceptions.Timeout as exc:
         raise OllamaClientError(
-            f"Zeitüberschreitung beim Zugriff auf {url}."
+            f"Zeitüberschreitung nach {REQUEST_TIMEOUT} Sekunden "
+            f"beim Zugriff auf {url}."
         ) from exc
+
     except requests.exceptions.ConnectionError as exc:
         raise OllamaClientError(
             f"Keine Verbindung zur Ollama-API unter {url} möglich."
         ) from exc
+
     except requests.exceptions.HTTPError as exc:
-        body = response.text[:1000]
         raise OllamaClientError(
-            f"Ollama antwortete mit HTTP {response.status_code}: {body}"
+            f"Ollama antwortete mit HTTP {response.status_code}: "
+            f"{response.text[:MAX_ERROR_BODY_LENGTH]}"
         ) from exc
 
-    try:
-        return response.json()
-    except ValueError as exc:
+    except requests.exceptions.RequestException as exc:
         raise OllamaClientError(
-            f"Ollama lieferte keine gültige JSON-Antwort: "
-            f"{response.text[:1000]}"
+            f"Unerwarteter Netzwerkfehler beim Zugriff auf {url}: {exc}"
         ) from exc
+
+    return _parse_json_response(response)
 
 
 def call_ollama_generate(
@@ -81,8 +124,10 @@ def call_ollama_generate(
     Ruft POST /api/generate auf und gibt den erzeugten Text zurück.
     """
 
+    selected_model = model or DEFAULT_MODEL
+
     payload: Dict[str, Any] = {
-        "model": model or DEFAULT_MODEL,
+        "model": selected_model,
         "prompt": prompt,
         "stream": False,
         "options": {
@@ -95,7 +140,6 @@ def call_ollama_generate(
         payload["format"] = "json"
 
     data = _post("/api/generate", payload)
-
     generated_text = data.get("response")
 
     if not isinstance(generated_text, str):
@@ -103,7 +147,14 @@ def call_ollama_generate(
             "In der Ollama-Antwort fehlt das Textfeld 'response'."
         )
 
-    return generated_text.strip()
+    generated_text = generated_text.strip()
+
+    if not generated_text:
+        raise OllamaClientError(
+            "Ollama lieferte eine leere Antwort."
+        )
+
+    return generated_text
 
 
 def call_ollama_chat(
@@ -116,15 +167,44 @@ def call_ollama_chat(
     """
     Ruft POST /api/chat auf.
 
-    messages muss beispielsweise so aussehen:
+    Beispiel für messages:
+
     [
         {"role": "system", "content": "..."},
         {"role": "user", "content": "..."}
     ]
     """
 
+    if not messages:
+        raise ValueError(
+            "Die Nachrichtenliste darf nicht leer sein."
+        )
+
+    for message in messages:
+        if not isinstance(message, dict):
+            raise ValueError(
+                "Jede Nachricht muss ein Dictionary sein."
+            )
+
+        if message.get("role") not in {
+            "system",
+            "user",
+            "assistant",
+            "tool"
+        }:
+            raise ValueError(
+                f"Ungültige Nachrichtenrolle: {message.get('role')}"
+            )
+
+        if not isinstance(message.get("content"), str):
+            raise ValueError(
+                "Jede Nachricht benötigt einen Textinhalt."
+            )
+
+    selected_model = model or DEFAULT_MODEL
+
     payload: Dict[str, Any] = {
-        "model": model or DEFAULT_MODEL,
+        "model": selected_model,
         "messages": messages,
         "stream": False,
         "options": {
@@ -138,7 +218,13 @@ def call_ollama_chat(
 
     data = _post("/api/chat", payload)
 
-    message = data.get("message", {})
+    message = data.get("message")
+
+    if not isinstance(message, dict):
+        raise OllamaClientError(
+            "In der Ollama-Antwort fehlt das Objekt 'message'."
+        )
+
     generated_text = message.get("content")
 
     if not isinstance(generated_text, str):
@@ -146,7 +232,14 @@ def call_ollama_chat(
             "In der Ollama-Antwort fehlt das Feld 'message.content'."
         )
 
-    return generated_text.strip()
+    generated_text = generated_text.strip()
+
+    if not generated_text:
+        raise OllamaClientError(
+            "Ollama lieferte eine leere Chat-Antwort."
+        )
+
+    return generated_text
 
 
 def call_ollama(
@@ -155,10 +248,13 @@ def call_ollama(
 ) -> str:
     """
     Kompatibilitätsfunktion für den bisherigen Code.
-    Verwendet standardmäßig /api/generate.
+
+    Verwendet standardmäßig POST /api/generate.
     """
 
     return call_ollama_generate(
         prompt=prompt,
-        model=model
+        model=model,
+        temperature=0.2,
+        max_tokens=300
     )
