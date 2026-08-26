@@ -325,14 +325,17 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "include_solution_steps_from_hint_level",
+        "solution_step_limit_by_hint_level",
         "include_final_answer_from_hint_level",
         "treat_student_answer_as_untrusted"
       ],
       "properties": {
-        "include_solution_steps_from_hint_level": {
-          "type": "integer",
-          "minimum": 1
+        "solution_step_limit_by_hint_level": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "include_final_answer_from_hint_level": {
           "type": "integer",
