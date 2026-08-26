@@ -12,6 +12,7 @@ von 262.144 Tokens.
 import os
 from typing import Any, Dict, List, Optional
 
+import json
 import requests
 from requests import Response
 from requests.adapters import HTTPAdapter
@@ -117,19 +118,14 @@ def call_ollama_generate(
     prompt: str,
     model: Optional[str] = None,
     temperature: float = 0.2,
-    max_tokens: int = 300,
+    max_tokens: int = 1000,
     json_output: bool = False
 ) -> str:
-    """
-    Ruft POST /api/generate auf und gibt den erzeugten Text zurück.
-    """
-
-    selected_model = model or DEFAULT_MODEL
-
     payload: Dict[str, Any] = {
-        "model": selected_model,
+        "model": model or DEFAULT_MODEL,
         "prompt": prompt,
         "stream": False,
+        "think": False,
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens
@@ -140,21 +136,31 @@ def call_ollama_generate(
         payload["format"] = "json"
 
     data = _post("/api/generate", payload)
+
+    print("OLLAMA RAW RESPONSE:")
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
     generated_text = data.get("response")
 
-    if not isinstance(generated_text, str):
+    if isinstance(generated_text, str) and generated_text.strip():
+        return generated_text.strip()
+
+    thinking_text = data.get("thinking")
+
+    if isinstance(thinking_text, str) and thinking_text.strip():
         raise OllamaClientError(
-            "In der Ollama-Antwort fehlt das Textfeld 'response'."
+            "Das Modell lieferte nur Thinking-Inhalt, aber keine finale "
+            "Antwort. Erhöhe num_predict oder verwende think=False. "
+            f"Thinking-Auszug: {thinking_text[:500]}"
         )
 
-    generated_text = generated_text.strip()
+    done_reason = data.get("done_reason", "unbekannt")
 
-    if not generated_text:
-        raise OllamaClientError(
-            "Ollama lieferte eine leere Antwort."
-        )
-
-    return generated_text
+    raise OllamaClientError(
+        "Ollama lieferte keine finale Textantwort. "
+        f"done_reason={done_reason}; "
+        f"vorhandene Felder={list(data.keys())}"
+    )
 
 
 def call_ollama_chat(
