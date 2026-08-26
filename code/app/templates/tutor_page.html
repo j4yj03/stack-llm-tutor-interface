@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>AI Tutor</title>
+
     <style>
         body {
             font-family: system-ui, sans-serif;
@@ -25,7 +26,8 @@
             background: #f1f6ff;
         }
 
-        code, pre {
+        code,
+        pre {
             background: #f3f3f3;
             padding: 0.2rem 0.4rem;
             border-radius: 4px;
@@ -39,8 +41,30 @@
         details {
             margin-top: 1rem;
         }
+
+        .hint-button {
+            display: inline-block;
+            padding: 0.65rem 1rem;
+            border: 0;
+            border-radius: 6px;
+            background: #2b7cff;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .hint-button:hover {
+            background: #1f5fc4;
+        }
+
+        .hint-button:focus {
+            outline: 3px solid rgba(43, 124, 255, 0.3);
+            outline-offset: 2px;
+        }
     </style>
 </head>
+
 <body>
 
 <h1>AI Tutor</h1>
@@ -57,7 +81,9 @@
 
 <div class="box">
     <h2>STACK-Diagnose</h2>
-    <p><strong>{{ diagnosis_code }}</strong></p>
+    <p>
+        <strong>{{ diagnosis_code }}</strong>
+    </p>
     <p>{{ diagnosis_title }}</p>
 </div>
 
@@ -68,13 +94,45 @@
 
 <div class="box">
     <h2>Weitere Hilfe</h2>
+
     <p>
-        Falls du einen stärkeren Hinweis möchtest, kannst du eine höhere Hilfestufe verwenden.
+        Aktuelle Hilfestufe:
+        <strong>{{ hint_level }}</strong>
     </p>
 
-    <ul>
-        <li>Aktuelle Hilfestufe: {{ hint_level }}</li>
-    </ul>
+    {% if hint_level < 4 %}
+        <form method="get" action="/start">
+            <input type="hidden"
+                   name="qid"
+                   value="{{ question_id }}">
+
+            <input type="hidden"
+                   name="diagnosis"
+                   value="{{ diagnosis_code }}">
+
+            <input type="hidden"
+                   name="ans1"
+                   value="{{ student_answer }}">
+
+            <input type="hidden"
+                   name="hint_level"
+                   value="{{ hint_level + 1 }}">
+
+            {% if model %}
+                <input type="hidden"
+                       name="model"
+                       value="{{ model }}">
+            {% endif %}
+
+            <button type="submit" class="hint-button">
+                Weiterer Hinweis
+            </button>
+        </form>
+    {% else %}
+        <p>
+            Die höchste Hilfestufe wurde erreicht.
+        </p>
+    {% endif %}
 </div>
 
 <details>
