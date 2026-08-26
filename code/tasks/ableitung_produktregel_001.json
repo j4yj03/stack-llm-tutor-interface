@@ -230,7 +230,12 @@
     }
   ],
   "prompt_context_policy": {
-    "include_solution_steps_from_hint_level": 2,
+    "solution_step_limit_by_hint_level": {
+      "1": 0,
+      "2": 1,
+      "3": 3,
+      "4": 99
+    },
     "include_final_answer_from_hint_level": 4,
     "treat_student_answer_as_untrusted": true
   }

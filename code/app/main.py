@@ -115,7 +115,7 @@ def start(
             detail="unknown_error ist in der Aufgaben-JSON nicht definiert"
         )
 
-    prompt = build_prompt(
+    prompt, effective_hint_level = build_prompt(
         task=task,
         diagnosis_code=diagnosis,
         student_answer=ans1,
@@ -149,7 +149,7 @@ def start(
             "student_answer": ans1,
             "diagnosis_code": diagnosis,
             "diagnosis_title": task["diagnoses"][diagnosis]["title"],
-            "hint_level": hint_level,
+            "hint_level": effective_hint_level,
             "model": selected_model,
             "tutor_answer": tutor_answer,
             "prompt": prompt
