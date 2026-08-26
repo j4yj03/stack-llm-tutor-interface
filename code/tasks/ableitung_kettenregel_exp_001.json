@@ -293,6 +293,17 @@
         "vollständige Endlösung als abschließende Antwort"
       ],
       "example_hint": "Die innere Ableitung ist g'(x)=2*x-2*exp(x). Multipliziere diese nun mit der Ableitung der äußeren Exponentialfunktion und beachte den Faktor -5."
+    },
+    {
+      "level": 4,
+      "name": "Ausführliche Unterstützung",
+      "goal": "Den vollständigen Lösungsweg erläutern.",
+      "may_include": [
+        "alle Lösungsschritte",
+        "vollständige Herleitung",
+        "Endergebnis"
+      ],
+      "must_not_include": []
     }
   ],
   "prompt_context_policy": {

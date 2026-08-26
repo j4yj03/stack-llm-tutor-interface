@@ -227,6 +227,17 @@
         "vollständige Endlösung als abschließende Antwort"
       ],
       "example_hint": "Die beiden Faktoren haben die Ableitungen u'=2*x und v'=cos(x). Setze diese nun in u'v+uv' ein."
+    },
+    {
+      "level": 4,
+      "name": "Ausführliche Unterstützung",
+      "goal": "Den vollständigen Lösungsweg erläutern.",
+      "may_include": [
+        "alle Lösungsschritte",
+        "vollständige Herleitung",
+        "Endergebnis"
+      ],
+      "must_not_include": []
     }
   ],
   "prompt_context_policy": {
