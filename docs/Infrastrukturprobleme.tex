@@ -1,0 +1,34 @@
+\section{Infrastrukturbedingte Herausforderungen bei der LLM-Anbindung}
+
+Für die prototypische Implementierung war zunächst vorgesehen, ein durch die Hochschule bereitgestelltes und selbst gehostetes Sprachmodell über eine dokumentierte Ollama-Schnittstelle anzubinden. Der Zugriff sollte aus dem Hochschulnetz beziehungsweise über eine aktive VPN-Verbindung erfolgen. Als API-Endpunkte waren insbesondere die Ollama-Routen \texttt{/api/chat}, \texttt{/api/generate} und \texttt{/api/tags} vorgesehen. Der bereitgestellte Python-Wrapper verwendet ebenfalls diese Endpunkte und setzt das native Ollama-Request- und Response-Format voraus [11].
+
+Bei der technischen Erprobung zeigte sich jedoch eine Abweichung zwischen der dokumentierten Schnittstelle und der tatsächlich bereitgestellten Infrastruktur. Der Aufruf der Basis-URL lieferte die OpenAPI-Dokumentation eines LiteLLM-Proxys. Die dokumentierten Ollama-Endpunkte \texttt{/api/tags} und \texttt{/api/chat} antworteten jeweils mit dem HTTP-Statuscode 404 und der Meldung \texttt{\{"detail":"Not Found"\}}. Dies weist darauf hin, dass die betreffenden Routen auf der aktuell erreichbaren Serverinstanz nicht registriert waren. Demgegenüber war der OpenAI-kompatible LiteLLM-Endpunkt \texttt{/v1/chat/completions} grundsätzlich erreichbar, beantwortete nicht authentifizierte Anfragen jedoch mit dem HTTP-Statuscode 401 und dem Hinweis auf einen fehlenden API-Schlüssel.
+
+Da die HTTPS-Verbindung erfolgreich aufgebaut wurde und der Server strukturierte HTTP-Antworten lieferte, konnten grundlegende Probleme der Netzwerkverbindung, der DNS-Auflösung oder der TLS-Kommunikation weitgehend ausgeschlossen werden. Auch die aktive VPN-Verbindung stellte nicht die unmittelbare Fehlerursache dar. Die Testergebnisse deuten vielmehr auf eine Inkonsistenz zwischen der dokumentierten Ollama-API und der aktuell betriebenen LiteLLM-Proxy-Konfiguration hin. Ohne einen gültigen LiteLLM-Schlüssel oder eine alternative interne Ollama-Adresse war deshalb zum Zeitpunkt der Erprobung kein Zugriff auf die gehosteten Modelle möglich.
+
+Die festgestellte Abweichung betrifft nicht die eigentliche Tutorlogik. Der Prompt-Builder erzeugt eine standardisierte Folge aus System-, Benutzer- und Assistenznachrichten, die grundsätzlich sowohl von nativen Ollama-Schnittstellen als auch von OpenAI-kompatiblen APIs verarbeitet werden kann [8]. Ebenso arbeiten die lokale Aufgabenverwaltung, die generische Hint-Policy sowie die SQLite-basierte Chat-Historie unabhängig vom verwendeten Modellbackend [2][4][5]. Backendabhängig sind dagegen insbesondere der API-Endpunkt, die Authentifizierung, einzelne Request-Parameter und die Struktur der Antwort.
+
+Native Ollama-Anfragen verwenden beispielsweise den Endpunkt \texttt{/api/chat}, Ollama-spezifische Optionen wie \texttt{num\_predict} sowie eine Antwort im Feld \texttt{message.content}. Der LiteLLM-Proxy stellt dagegen den OpenAI-kompatiblen Endpunkt \texttt{/v1/chat/completions} bereit, verwendet Parameter wie \texttt{max\_tokens} und liefert den generierten Inhalt typischerweise unter \texttt{choices[0].message.content}. Zusätzlich kann ein Autorisierungsheader in der Form \texttt{Authorization: Bearer <API-Key>} erforderlich sein. Der ursprünglich implementierte Client ist auf das native Ollama-Format ausgerichtet [7].
+
+Aus dieser Problematik folgt als Architekturentscheidung, die Tutor-Anwendung nicht dauerhaft an ein einzelnes LLM-Backend zu koppeln. Stattdessen sollte eine abstrakte Clientschicht eingeführt werden, welche die Tutorlogik von den technischen Besonderheiten des jeweiligen Inferenzdienstes entkoppelt. Eine mögliche Struktur umfasst separate Adapter für native Ollama- und OpenAI-kompatible LiteLLM-Schnittstellen. Die Auswahl des Backends, der Basis-URL, des Modells und gegebenenfalls des API-Schlüssels kann über Umgebungsvariablen erfolgen. Auf diese Weise bleiben Prompt-Erzeugung, Chat-Historie und Tutorsteuerung unverändert, während lediglich die Kommunikationsschicht ausgetauscht wird.
+
+\[
+\begin{aligned}
+\text{Tutor-Anwendung}
+&\rightarrow \text{abstrakte LLM-Client-Schnittstelle} \\
+&\rightarrow
+\begin{cases}
+\text{Ollama-Adapter} \\
+\text{LiteLLM-Adapter}
+\end{cases}
+\rightarrow \text{Sprachmodell}
+\end{aligned}
+\]
+
+Für die Reproduzierbarkeit der Evaluation müssen daher nicht nur der Modellname, sondern auch der verwendete API-Typ, der öffentliche Modellalias, die Inferenzparameter und die Version des Proxy- beziehungsweise Inferenzdienstes dokumentiert werden. Das vorgesehene Modell \texttt{qwen3.6:27b} ist in der bereitgestellten Modellübersicht mit 27,8 Milliarden Parametern, einer Q4\_K\_M-Quantisierung und einem Kontextfenster von 262.144 Tokens aufgeführt [1]. Die bloße Verfügbarkeit in einer Ollama-Modellübersicht gewährleistet jedoch nicht, dass derselbe Name unverändert als öffentlicher Modellalias eines LiteLLM-Proxys verwendet werden kann.
+
+Bis zur Klärung der Hochschulschnittstelle kann für Entwicklung und automatisierte Tests eine lokale Ollama-Instanz eingesetzt werden. Dabei ist zwischen funktionalen Softwaretests und der späteren Modellevaluation zu unterscheiden. Ein kleineres lokales Modell kann die korrekte Verarbeitung von Requests, die Chat-Historie, die Hilfestufen und die Fehlerbehandlung prüfen. Aussagen über die didaktische Qualität des vorgesehenen Hochschulmodells dürfen daraus jedoch nicht unmittelbar abgeleitet werden.
+
+API-Schlüssel dürfen nicht im Quellcode oder Repository gespeichert werden. Für eine mögliche LiteLLM-Anbindung sind stattdessen Umgebungsvariablen, lokale Konfigurationsdateien außerhalb der Versionsverwaltung oder eine Secret-Verwaltung zu verwenden. Die TLS-Zertifikatsprüfung soll aktiviert bleiben. Darüber hinaus sollten Fehlermeldungen der externen Infrastruktur serverseitig protokolliert, gegenüber Studierenden jedoch auf eine allgemeine und datenschutzgerechte Meldung reduziert werden.
+
+Die Infrastrukturproblematik verdeutlicht insgesamt die Bedeutung eines stabilen und dokumentierten API-Vertrags für reproduzierbare KI-Anwendungen. Für die vorliegende Arbeit stellt sie zugleich eine praktische Begründung für die modulare Trennung von Tutorlogik, Prompt-Erzeugung, Sitzungsverwaltung und Modellkommunikation dar. Durch diese Entkopplung kann der Prototyp unabhängig von kurzfristigen Änderungen der bereitgestellten Inferenzinfrastruktur entwickelt und getestet werden.

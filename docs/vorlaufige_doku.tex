@@ -1,0 +1,867 @@
+\documentclass[11pt,a4paper,oneside,ngerman]{memoir}
+
+\usepackage[ngerman]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{mathtools}
+
+\definecolor{htwgreen}{RGB}{137,186,23}
+\definecolor{bred}{RGB}{128,0,50}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=bred,
+    urlcolor=htwgreen
+}
+
+\setlist[itemize]{leftmargin=2em}
+\setlist[enumerate]{leftmargin=2em}
+\emergencystretch=2em
+
+\title{
+    \textbf{Dokumentation der LLM-Infrastruktur und API-Integration}\\
+    \large STACK-LLM-Tutor für digitale Mathematikaufgaben
+}
+\author{Sidney Göhler}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\clearpage
+
+\chapter{Zielsetzung}
+
+Ziel ist die Anbindung eines selbst gehosteten Sprachmodells der HTW Berlin an einen FastAPI-basierten Tutor für digitale Mathematikaufgaben. Die Tutor-Anwendung soll Informationen aus Moodle beziehungsweise STACK entgegennehmen, einen didaktisch kontrollierten Prompt erzeugen, ein selbst gehostetes Sprachmodell aufrufen und den generierten Hinweis an die Tutor-Weboberfläche zurückgeben.
+
+Die vorgesehene Verarbeitungskette lautet:
+
+\[
+\begin{aligned}
+\text{Moodle/STACK}
+&\rightarrow \text{FastAPI-Tutor-Backend}\\
+&\rightarrow \text{Prompt-Builder}\\
+&\rightarrow \text{LLM-Dienst}\\
+&\rightarrow \text{Tutor-Weboberfläche}.
+\end{aligned}
+\]
+
+Dabei soll das Large Language Model nicht selbst als maßgebliche mathematische Bewertungsinstanz eingesetzt werden. Die mathematische Bewertung und Fehlerdiagnose sollen weiterhin durch STACK, Potential Response Trees und perspektivisch durch eine Headless-STACK- beziehungsweise Maxima-Schnittstelle erfolgen. Das LLM übernimmt ausschließlich die sprachliche und didaktische Formulierung adaptiver Hinweise.
+
+\chapter{Softwarearchitektur des Prototyps}
+
+\section{Projektstruktur}
+
+Die aktuelle beziehungsweise angestrebte Projektstruktur umfasst folgende Komponenten:
+
+\begin{verbatim}
+stack-llm-tutor-interface/
+|-- app/
+|   |-- __init__.py
+|   |-- main.py
+|   |-- config.py
+|   |-- schemas.py
+|   |-- database.py
+|   |-- chat_store.py
+|   |-- hint_policy.py
+|   |-- prompt_builder.py
+|   |-- task_loader.py
+|   |-- ollama_client.py
+|   `-- templates/
+|       `-- tutor_page.html
+|-- config/
+|   `-- hint_levels.json
+|-- data/
+|   `-- tutor.db
+|-- moodle/
+|-- schemas/
+|   `-- stack_ai_tutor_task.schema.json
+|-- tasks/
+|   |-- ableitung_kettenregel_exp_001.json
+|   `-- ableitung_produktregel_001.json
+|-- tests/
+|   |-- test_endpoint.py
+|   |-- test_ollama_integration.py
+|   |-- test_prompt_builder.py
+|   |-- test_hint_policy.py
+|   |-- test_chat_store.py
+|   `-- test_solution_disclosure.py
+|-- docs/
+|-- requirements.txt
+|-- pytest.ini
+`-- README.md
+\end{verbatim}
+
+\section{FastAPI-Anwendung}
+
+Die Datei \texttt{main.py} enthält die FastAPI-Anwendung und stellt unter anderem folgende Endpunkte bereit:
+
+\begin{itemize}
+    \item \texttt{GET /health}
+    \item \texttt{GET /tasks}
+    \item \texttt{GET /start}
+    \item \texttt{POST /api/tutor/start}
+    \item \texttt{POST /api/tutor/\{chat\_id\}/next-hint}
+    \item \texttt{POST /api/tutor/\{chat\_id\}/message}
+    \item \texttt{GET /api/tutor/\{chat\_id\}/history}
+\end{itemize}
+
+Der Endpunkt \texttt{/start} dient als Adapter für einen aus Moodle beziehungsweise STACK geöffneten Feedback-Link. Die übrigen Endpunkte stellen eine strukturierte Programmierschnittstelle für Tutor-Sitzungen, weitere Hilfestufen und Chat-Nachrichten bereit.
+
+\section{Aufgabenverwaltung}
+
+Die Datei \texttt{task\_loader.py} lädt die Aufgabenbeschreibungen aus dem Verzeichnis \texttt{tasks}. Die Aufgaben werden beim Start der Anwendung gegen ein JSON-Schema validiert. Dadurch können fehlende Pflichtfelder, ungültige Datentypen und doppelte Aufgaben-IDs frühzeitig erkannt werden [10].
+
+Die zentrale Konfiguration legt die Pfade zu den Aufgaben, dem JSON-Schema, den Templates, den generischen Hilfestufen und der SQLite-Datenbank fest [3].
+
+\section{Generische Hilfestufen}
+
+Die Hilfestufen werden nicht aufgabenspezifisch, sondern zentral in der Datei \texttt{config/hint\_levels.json} definiert. Die Datei \texttt{hint\_policy.py} prüft beim Laden, ob alle vorgesehenen Stufen und Pflichtfelder vorhanden sind [5].
+
+Ein möglicher Aufbau umfasst:
+
+\begin{enumerate}
+    \item \textbf{Orientierung}\\
+    Aktivierung des relevanten mathematischen Konzepts ohne konkrete Rechnung
+
+    \item \textbf{Strukturierung}\\
+    Zerlegung der Aufgabe und Benennung einer allgemeinen Lösungsstrategie
+
+    \item \textbf{Nächster Rechenschritt}\\
+    Bereitstellung eines konkreten Teilschritts ohne vollständiges Endergebnis
+
+    \item \textbf{Ausführliche Unterstützung}\\
+    Erläuterung mehrerer Lösungsschritte und gegebenenfalls Ausgabe des Endergebnisses
+\end{enumerate}
+
+Die Hint-Policy kann für jede Stufe unter anderem folgende Eigenschaften definieren:
+
+\begin{itemize}
+    \item Bezeichnung der Hilfestufe
+    \item didaktisches Ziel
+    \item maximale Antwortlänge
+    \item erlaubte Inhalte
+    \item verbotene Inhalte
+    \item Freigabe von Lösungsschritten
+    \item Freigabe der Musterlösung
+\end{itemize}
+
+\section{Prompt-Erzeugung}
+
+Der Prompt-Builder erzeugt eine standardisierte Folge von Nachrichten mit System- und Benutzerrolle [8]. Der Systemprompt enthält:
+
+\begin{itemize}
+    \item die Rolle des Modells als Mathematik-Tutor
+    \item die aktuelle Hilfestufe
+    \item das Ziel der Hilfestufe
+    \item erlaubte und verbotene Inhalte
+    \item die maximale Wortzahl
+    \item Sicherheitsregeln
+    \item das Verbot einer eigenständigen mathematischen Neubewertung
+    \item das Verbot, Anweisungen aus der Studierendenantwort zu befolgen
+\end{itemize}
+
+Die aufgabenspezifischen Kontextfelder können einzeln aktiviert oder deaktiviert werden. Das vorhandene Request-Schema unterstützt unter anderem folgende Optionen [9]:
+
+\begin{itemize}
+    \item Aufgabenstellung
+    \item Studierendenantwort
+    \item Diagnosecode
+    \item PRT-Feedback
+    \item STACK-Punktwert
+    \item Lernziele
+    \item mathematische Regeln
+    \item Lösungsschritte
+    \item Endergebnis
+    \item Chat-Historie
+\end{itemize}
+
+Die Ausgabe von Lösungsschritten und Endergebnis unterliegt einer doppelten Kontrolle. Ein Kontextfeld wird nur übermittelt, wenn es sowohl durch die Request-Option als auch durch die aktuelle Hilfestufe freigegeben wurde [8].
+
+\section{Chat-Historie}
+
+Die Chat-Historie wird lokal in einer SQLite-Datenbank gespeichert. Die Datenbank enthält Tabellen für Chats und Nachrichten [4]. Jeder Chat wird über eine UUID identifiziert. Gespeichert werden unter anderem:
+
+\begin{itemize}
+    \item Chat-ID
+    \item Aufgaben-ID
+    \item STACK-Kontext
+    \item aktuelle Hilfestufe
+    \item Nachrichtenrolle
+    \item Nachrichteninhalt
+    \item Zeitstempel
+\end{itemize}
+
+Die Klasse \texttt{ChatStore} stellt Funktionen zum Erzeugen und Laden von Chats, Speichern von Nachrichten sowie Setzen und Erhöhen der Hilfestufe bereit. Die Hilfestufe wird auf die konfigurierte maximale Stufe begrenzt [2].
+
+Die UUID dient als Sitzungsbezeichner. Sie stellt jedoch keine vollständige Benutzer-Authentifizierung dar. Bei einem späteren produktiven Einsatz wären zusätzliche Zugriffs- und Berechtigungskontrollen erforderlich.
+
+\chapter{Geplante Hochschul-LLM-Infrastruktur}
+
+\section{Dokumentierte Schnittstelle}
+
+Für die Anbindung des Hochschulmodells wurde zunächst folgende Basis-URL verwendet:
+
+\begin{verbatim}
+https://f2ki-h100-1.f2.htw-berlin.de:11435
+\end{verbatim}
+
+Die Hochschuldokumentation beschreibt eine native Ollama-Schnittstelle ohne API-Authentifizierung. Als Voraussetzung wird eine aktive Verbindung mit dem HTW-VPN genannt.
+
+Dokumentiert wurden insbesondere folgende Endpunkte:
+
+\begin{itemize}
+    \item \texttt{GET /api/tags}
+    \item \texttt{POST /api/chat}
+    \item \texttt{POST /api/generate}
+    \item \texttt{POST /api/embed}
+\end{itemize}
+
+Der bereitgestellte HTW-Wrapper verwendet ebenfalls die nativen Ollama-Endpunkte \texttt{/api/tags}, \texttt{/api/chat} und \texttt{/api/generate}. Er übermittelt Ollama-spezifische Parameter wie \texttt{think}, \texttt{stream}, \texttt{keep\_alive}, \texttt{num\_ctx}, \texttt{temperature} und \texttt{num\_predict} [11].
+
+\section{Vorgesehenes Modell}
+
+Als primäres Modell wurde \texttt{qwen3.6:27b} ausgewählt. Das Modell umfasst 27,8 Milliarden Parameter, verwendet die Quantisierung Q4\_K\_M und besitzt ein Kontextfenster von 262.144 Tokens. Als Fähigkeiten werden Completion, Tool-Nutzung, Thinking und Vision ausgewiesen [1].
+
+Als mögliche Vergleichsmodelle stehen unter anderem zur Verfügung:
+
+\begin{itemize}
+    \item \texttt{qwen3.8:27b} mit 27,3 Milliarden Parametern und einem Kontextfenster von 262.144 Tokens [1]
+    \item \texttt{granite4.1:30b} mit 28,9 Milliarden Parametern und einem Kontextfenster von 131.072 Tokens [1]
+    \item \texttt{mistral-medium-3.5:128b} mit 127,7 Milliarden Parametern und einem Kontextfenster von 262.144 Tokens [1]
+\end{itemize}
+
+Für die erste prototypische Umsetzung sollte nur ein Modell verwendet werden. Ein Vergleich mehrerer Modelle kann im Rahmen der späteren Evaluation ergänzt werden.
+
+\chapter{Beobachtete Infrastrukturproblematik}
+
+\section{Abweichung zwischen Dokumentation und Serverzustand}
+
+Beim Aufruf der dokumentierten Basis-URL wurde nicht die Oberfläche eines nativen Ollama-Dienstes, sondern die OpenAPI-Dokumentation eines LiteLLM-Proxys in Version 1.99.0 angezeigt.
+
+Der sichtbare Dienst stellt unter anderem folgende OpenAI-kompatible Endpunkte bereit:
+
+\begin{itemize}
+    \item \texttt{POST /v1/chat/completions}
+    \item \texttt{POST /v1/completions}
+    \item \texttt{GET /v1/models}
+\end{itemize}
+
+Damit besteht eine Abweichung zwischen der dokumentierten Infrastruktur und dem tatsächlich beobachteten Serverzustand:
+
+\begin{table}[htbp]
+\centering
+\caption{Dokumentierte und beobachtete LLM-Schnittstelle}
+\label{tab:documented-observed-api}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.28\textwidth}p{0.31\textwidth}X@{}}
+\toprule
+\textbf{Merkmal} &
+\textbf{Dokumentation} &
+\textbf{Beobachtung} \\
+\midrule
+API-System &
+Native Ollama-API &
+LiteLLM-Proxy mit OpenAI-kompatibler API \\
+\addlinespace
+Authentifizierung &
+Keine Authentifizierung erforderlich &
+API-Schlüssel für \texttt{/v1/chat/completions} erforderlich \\
+\addlinespace
+Chat-Endpunkt &
+\texttt{/api/chat} &
+\texttt{/v1/chat/completions} \\
+\addlinespace
+Modellauflistung &
+\texttt{/api/tags} &
+\texttt{/v1/models} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Durchgeführte Endpunkttests}
+
+Zur Eingrenzung der Fehlerursache wurden die dokumentierten nativen Ollama-Endpunkte und der sichtbare LiteLLM-Endpunkt mit einem isolierten Python-Skript getestet. Die Tests wurden bei aktiver VPN-Verbindung über HTTPS und mit aktivierter TLS-Zertifikatsprüfung durchgeführt.
+
+Die Ergebnisse sind in Tabelle~\ref{tab:endpoint-results} dargestellt.
+
+\begin{table}[htbp]
+\centering
+\caption{Ergebnisse der Endpunkttests}
+\label{tab:endpoint-results}
+\small
+\begin{tabularx}{\textwidth}{
+    @{}
+    p{0.20\textwidth}
+    p{0.22\textwidth}
+    p{0.10\textwidth}
+    p{0.20\textwidth}
+    X
+    @{}
+}
+\toprule
+\textbf{API-Typ} &
+\textbf{Endpunkt} &
+\textbf{HTTP-Status} &
+\textbf{Antwort} &
+\textbf{Interpretation} \\
+\midrule
+Native Ollama-API &
+\texttt{GET /api/tags} &
+404 &
+\texttt{\{"detail":"Not Found"\}} &
+Der dokumentierte Endpunkt zur Modellauflistung war auf der erreichten Serverinstanz nicht registriert \\
+\addlinespace
+Native Ollama-API &
+\texttt{POST /api/chat} &
+404 &
+\texttt{\{"detail":"Not Found"\}} &
+Der dokumentierte Chat-Endpunkt war auf der erreichten Serverinstanz nicht registriert \\
+\addlinespace
+LiteLLM-Proxy &
+\texttt{POST /v1/chat/completions} &
+401 &
+\texttt{No api key passed in} &
+Der OpenAI-kompatible Endpunkt war erreichbar verlangte jedoch eine Authentifizierung \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Methodische Rahmenbedingungen der Tests}
+
+\begin{table}[htbp]
+\centering
+\caption{Rahmenbedingungen der Endpunkttests}
+\label{tab:test-environment}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.35\textwidth}X@{}}
+\toprule
+\textbf{Merkmal} & \textbf{Ausprägung} \\
+\midrule
+Netzwerkzugang & HTW-VPN aktiv \\
+Transportprotokoll & HTTPS \\
+TLS-Zertifikatsprüfung & aktiviert \\
+Basis-URL &
+\texttt{https://f2ki-h100-1.f2.htw-berlin.de:11435} \\
+HTTP-Client & Python \texttt{requests} \\
+Server-Header & \texttt{uvicorn} \\
+Sichtbare API-Implementierung & LiteLLM 1.99.0 \\
+Vorgesehenes Modell & \texttt{qwen3.6:27b} \\
+Streaming & deaktiviert \\
+Authentifizierung & kein API-Schlüssel vorhanden \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Interpretation}
+
+Die Testergebnisse zeigen, dass die HTTPS-Verbindung zur Hochschulinfrastruktur grundsätzlich erfolgreich aufgebaut werden konnte. Der Server war erreichbar und lieferte strukturierte HTTP-Antworten. Grundlegende Fehler der DNS-Auflösung, der VPN-Verbindung oder der TLS-Kommunikation können daher als unmittelbare Ursache weitgehend ausgeschlossen werden.
+
+Die HTTP-404-Antworten belegen nicht, dass kein Ollama-Dienst innerhalb der Hochschulinfrastruktur existiert. Sie zeigen lediglich, dass die konkret getesteten Routen \texttt{/api/tags} und \texttt{/api/chat} auf der über die angegebene Basis-URL erreichten Serverinstanz zum Testzeitpunkt nicht verfügbar waren.
+
+Die HTTP-401-Antwort des LiteLLM-Endpunkts zeigt dagegen, dass \texttt{/v1/chat/completions} grundsätzlich registriert und erreichbar war. Eine Verarbeitung der Modellanfrage wurde jedoch aufgrund fehlender Authentifizierungsinformationen abgelehnt.
+
+Die Ergebnisse sprechen somit für eine Inkonsistenz zwischen:
+
+\begin{itemize}
+    \item der Hochschuldokumentation
+    \item dem bereitgestellten Ollama-Wrapper
+    \item der aktuell erreichbaren Serverkonfiguration
+\end{itemize}
+
+\chapter{Unterschiede der API-Formate}
+
+\section{Native Ollama-API}
+
+Ein nativer Ollama-Chat-Request verwendet den Endpunkt:
+
+\begin{verbatim}
+POST /api/chat
+\end{verbatim}
+
+Beispielhafter Request:
+
+\begin{verbatim}
+{
+  "model": "qwen3.6:27b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Du bist ein Mathematik-Tutor."
+    },
+    {
+      "role": "user",
+      "content": "Gib einen kurzen Hinweis."
+    }
+  ],
+  "stream": false,
+  "think": false,
+  "options": {
+    "temperature": 0.2,
+    "num_predict": 400
+  }
+}
+\end{verbatim}
+
+Die native Ollama-Antwort wird typischerweise aus folgendem Feld gelesen:
+
+\begin{verbatim}
+message.content
+\end{verbatim}
+
+Der vorhandene LLM-Client verwendet derzeit dieses native Format und ruft die Endpunkte \texttt{/api/chat} beziehungsweise \texttt{/api/generate} auf [7].
+
+\section{LiteLLM-API}
+
+Der sichtbare LiteLLM-Proxy verwendet den OpenAI-kompatiblen Endpunkt:
+
+\begin{verbatim}
+POST /v1/chat/completions
+\end{verbatim}
+
+Beispielhafter Request:
+
+\begin{verbatim}
+{
+  "model": "qwen3.6:27b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Du bist ein Mathematik-Tutor."
+    },
+    {
+      "role": "user",
+      "content": "Gib einen kurzen Hinweis."
+    }
+  ],
+  "stream": false,
+  "temperature": 0.2,
+  "max_tokens": 400
+}
+\end{verbatim}
+
+Sofern ein API-Schlüssel erforderlich ist, muss ein HTTP-Header übermittelt werden:
+
+\begin{verbatim}
+Authorization: Bearer API_KEY
+\end{verbatim}
+
+Die generierte Antwort wird typischerweise aus folgendem Feld gelesen:
+
+\begin{verbatim}
+choices[0].message.content
+\end{verbatim}
+
+\section{Vergleich der Formate}
+
+\begin{table}[htbp]
+\centering
+\caption{Vergleich von Ollama- und LiteLLM-Chat-APIs}
+\label{tab:api-format-comparison}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.28\textwidth}p{0.31\textwidth}X@{}}
+\toprule
+\textbf{Merkmal} &
+\textbf{Ollama} &
+\textbf{LiteLLM} \\
+\midrule
+Chat-Endpunkt &
+\texttt{/api/chat} &
+\texttt{/v1/chat/completions} \\
+\addlinespace
+Temperatur &
+\texttt{options.temperature} &
+\texttt{temperature} \\
+\addlinespace
+Ausgabelimit &
+\texttt{options.num\_predict} &
+\texttt{max\_tokens} \\
+\addlinespace
+Antwortinhalt &
+\texttt{message.content} &
+\texttt{choices[0].message.content} \\
+\addlinespace
+Authentifizierung &
+laut Dokumentation nicht erforderlich &
+auf der getesteten Instanz erforderlich \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\chapter{Architekturentscheidung}
+
+\section{Backendunabhängige LLM-Schnittstelle}
+
+Aus der beobachteten Infrastrukturproblematik folgt, dass die Tutor-Anwendung nicht dauerhaft an einen einzelnen API-Typ gekoppelt werden sollte. Stattdessen ist eine abstrakte Clientschicht sinnvoll:
+
+\[
+\begin{aligned}
+\text{Tutor-Anwendung}
+&\rightarrow \text{abstrakte LLM-Schnittstelle}\\
+&\rightarrow
+\begin{cases}
+\text{Ollama-Adapter}\\
+\text{LiteLLM-Adapter}
+\end{cases}\\
+&\rightarrow \text{Sprachmodell}.
+\end{aligned}
+\]
+
+Die Auswahl des Backends sollte über Umgebungsvariablen erfolgen:
+
+\begin{verbatim}
+LLM_API_MODE=ollama
+LLM_BASE_URL=http://127.0.0.1:11434
+LLM_MODEL=qwen3:8b
+\end{verbatim}
+
+oder:
+
+\begin{verbatim}
+LLM_API_MODE=litellm
+LLM_BASE_URL=https://f2ki-h100-1.f2.htw-berlin.de:11435
+LLM_API_KEY=GEHEIMER_API_KEY
+LLM_MODEL=qwen3.6:27b
+\end{verbatim}
+
+\section{Konfigurationsparameter}
+
+Die Konfiguration sollte mindestens folgende Werte enthalten:
+
+\begin{itemize}
+    \item API-Modus
+    \item Basis-URL
+    \item Modellalias
+    \item Zeitlimit
+    \item optionaler API-Schlüssel
+    \item maximale Anzahl auszugebender Tokens
+    \item Temperatur
+\end{itemize}
+
+Der tatsächlich verwendete Modellalias muss mit dem vom jeweiligen Proxy veröffentlichten Namen übereinstimmen. Die Verfügbarkeit eines Modells in einer Ollama-Modellliste bedeutet nicht zwingend, dass derselbe Name unverändert durch einen LiteLLM-Proxy veröffentlicht wird.
+
+\section{Auswirkungen auf bestehende Module}
+
+Die Infrastrukturproblematik betrifft primär den LLM-Client. Folgende Komponenten können backendunabhängig weiterverwendet werden:
+
+\begin{itemize}
+    \item Prompt-Builder
+    \item generische Hint-Policy
+    \item Aufgabenverwaltung
+    \item JSON-Schema-Validierung
+    \item SQLite-Datenbank
+    \item Chat-Historie
+    \item FastAPI-Endpunkte
+\end{itemize}
+
+Der Prompt-Builder erzeugt bereits eine Nachrichtenstruktur aus Rollen und Textinhalten, die sowohl für Ollama- als auch für OpenAI-kompatible APIs geeignet ist [8]. Die Chat-Historie wird vollständig lokal verwaltet und ist daher unabhängig vom verwendeten Modellbackend [2][4].
+
+Angepasst werden müssen:
+
+\begin{itemize}
+    \item API-Endpunkt
+    \item Authentifizierungsheader
+    \item providerspezifische Request-Parameter
+    \item Parsing der Modellantwort
+    \item Fehlerbehandlung
+\end{itemize}
+
+\chapter{Fehlerbehandlung}
+
+\section{Relevante HTTP-Statuscodes}
+
+\begin{table}[htbp]
+\centering
+\caption{Interpretation relevanter HTTP-Statuscodes}
+\label{tab:http-status-codes}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.13\textwidth}p{0.30\textwidth}X@{}}
+\toprule
+\textbf{Status} &
+\textbf{Bezeichnung} &
+\textbf{Interpretation im Tutor-System} \\
+\midrule
+200 &
+OK &
+Die Anfrage wurde erfolgreich verarbeitet \\
+\addlinespace
+400 &
+Bad Request &
+Der Request war syntaktisch oder semantisch ungültig \\
+\addlinespace
+401 &
+Unauthorized &
+Erforderliche Authentifizierungsinformationen fehlten oder wurden nicht akzeptiert \\
+\addlinespace
+403 &
+Forbidden &
+Der Zugriff wurde trotz übermittelter Identität verweigert \\
+\addlinespace
+404 &
+Not Found &
+Die angefragte Route oder Ressource wurde auf der erreichten Instanz nicht gefunden \\
+\addlinespace
+429 &
+Too Many Requests &
+Eine Kapazitäts- oder Ratenbegrenzung wurde erreicht \\
+\addlinespace
+500 &
+Internal Server Error &
+Die Zielanwendung konnte die Anfrage aufgrund eines internen Fehlers nicht verarbeiten \\
+\addlinespace
+502 &
+Bad Gateway &
+Das Tutor-Backend erhielt vom nachgelagerten LLM-Dienst keine gültige Antwort \\
+\addlinespace
+503 &
+Service Unavailable &
+Der Dienst war vorübergehend nicht verfügbar \\
+\addlinespace
+504 &
+Gateway Timeout &
+Der nachgelagerte Dienst antwortete nicht innerhalb des vorgesehenen Zeitlimits \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Empfohlene Fehlerklassen}
+
+Die LLM-Kommunikationsschicht sollte Fehler differenziert behandeln:
+
+\begin{itemize}
+    \item \texttt{LLMConnectionError}
+    \item \texttt{LLMAuthenticationError}
+    \item \texttt{LLMEndpointNotFoundError}
+    \item \texttt{LLMTimeoutError}
+    \item \texttt{LLMInvalidResponseError}
+    \item \texttt{LLMModelNotFoundError}
+\end{itemize}
+
+Interne Fehlermeldungen sollten serverseitig protokolliert werden. Studierenden sollten dagegen keine API-Schlüssel, vollständigen Serverantworten oder internen Infrastrukturdetails angezeigt werden.
+
+\chapter{Sicherheits- und Datenschutzaspekte}
+
+\section{Umgang mit API-Schlüsseln}
+
+Ein LiteLLM-API-Schlüssel darf nicht im Quellcode gespeichert werden.
+
+Nicht empfohlen ist:
+
+\begin{verbatim}
+LLM_API_KEY = "sk-..."
+\end{verbatim}
+
+Geeignete Speicherorte sind:
+
+\begin{itemize}
+    \item Umgebungsvariablen
+    \item lokale \texttt{.env}-Dateien außerhalb der Versionsverwaltung
+    \item Secret Stores
+    \item Docker Secrets
+    \item n8n-Credentials
+\end{itemize}
+
+Die Datei \texttt{.env} muss in \texttt{.gitignore} eingetragen werden.
+
+\section{TLS-Zertifikatsprüfung}
+
+Da die Hochschulinfrastruktur ein HTTPS-Zertifikat bereitstellt, sollte die Zertifikatsprüfung aktiviert bleiben:
+
+\begin{verbatim}
+verify=True
+\end{verbatim}
+
+Eine Deaktivierung durch \texttt{verify=False} sollte vermieden werden.
+
+\section{Studierendenantworten}
+
+Studierendenantworten sind als nicht vertrauenswürdige Eingaben zu behandeln. Sie dürfen:
+
+\begin{itemize}
+    \item nicht als Systemanweisungen interpretiert werden
+    \item nicht ungefiltert als HTML ausgegeben werden
+    \item nicht unnötig in externen Logs gespeichert werden
+    \item keine personenbezogenen Daten enthalten
+\end{itemize}
+
+\section{Modellverwaltungsendpunkte}
+
+Die dokumentierten Endpunkte \texttt{/api/pull} und \texttt{/api/delete} werden für den Tutor nicht benötigt. Die Tutor-Anwendung sollte ausschließlich die für Inferenz und gegebenenfalls Modellauflistung erforderlichen Endpunkte verwenden.
+
+\chapter{Entwicklungs- und Teststrategie}
+
+\section{Lokales Ollama als Fallback}
+
+Bis zur Klärung des Hochschulzugangs kann die Tutor-Anwendung mit einer lokalen Ollama-Instanz entwickelt werden.
+
+Ein mögliches lokales Modell ist:
+
+\begin{verbatim}
+qwen3:8b
+\end{verbatim}
+
+Dieses Modell umfasst 8,2 Milliarden Parameter, verwendet Q4\_K\_M-Quantisierung, besitzt ein Kontextfenster von 40.960 Tokens und unterstützt Completion, Tools und Thinking [1].
+
+Beispielhafte Konfiguration:
+
+\begin{verbatim}
+LLM_API_MODE=ollama
+LLM_BASE_URL=http://127.0.0.1:11434
+LLM_MODEL=qwen3:8b
+\end{verbatim}
+
+Ein lokales Modell kann für funktionale Tests der API-Anbindung, des Prompt-Builders, der Chat-Historie und der Hilfestufen verwendet werden. Die Ergebnisse dürfen jedoch nicht ohne Weiteres auf das größere Hochschulmodell übertragen werden.
+
+\section{Unit-Tests}
+
+Unit-Tests sollen ohne Zugriff auf einen externen LLM-Dienst ausgeführt werden können. Zu prüfen sind:
+
+\begin{itemize}
+    \item Laden der Hint-Policy
+    \item Validierung der Hilfestufen
+    \item Ein- und Ausschalten von Kontextfeldern
+    \item Schutz der Endlösung vor Hilfestufe 4
+    \item Prompt-Erzeugung
+    \item Speicherung der Chat-Historie
+    \item UUID-Validierung
+    \item Aufgaben- und JSON-Schema-Validierung
+\end{itemize}
+
+\section{Integrationstests}
+
+Integrationstests prüfen die Kommunikation mit externen Diensten:
+
+\begin{itemize}
+    \item Erreichbarkeit des API-Endpunkts
+    \item Gültigkeit des Modellalias
+    \item erfolgreiche Chat-Anfrage
+    \item nicht leere Modellantwort
+    \item Behandlung von Authentifizierungsfehlern
+    \item Behandlung von Timeouts
+    \item Behandlung nicht vorhandener Endpunkte
+\end{itemize}
+
+Integrationstests sollten gesondert markiert werden:
+
+\begin{verbatim}
+@pytest.mark.integration
+\end{verbatim}
+
+Tests ohne externe Dienste:
+
+\begin{verbatim}
+pytest -m "not integration" -v
+\end{verbatim}
+
+Integrationstests:
+
+\begin{verbatim}
+pytest -m integration -v
+\end{verbatim}
+
+\section{Reproduzierbarkeit}
+
+Für eine reproduzierbare Evaluation sollten mindestens folgende Informationen protokolliert werden:
+
+\begin{itemize}
+    \item Testdatum
+    \item Basis-URL
+    \item API-Typ
+    \item API-Version
+    \item Modellname beziehungsweise Modellalias
+    \item Modellversion oder Digest
+    \item Prompt-Version
+    \item Hilfestufe
+    \item aktivierte Kontextfelder
+    \item Temperatur
+    \item Tokenlimit
+    \item Anfragezeitpunkt
+    \item Antwortzeit
+    \item HTTP-Statuscode
+    \item generierter Tutorhinweis
+\end{itemize}
+
+\chapter{Erforderliche Klärung mit dem Hochschulsupport}
+
+Zur Klärung der Schnittstelle sollte dem KI-Lab-Support eine reproduzierbare Fehlerbeschreibung übermittelt werden.
+
+\begin{quote}
+Ich bin über das HTW-VPN verbunden und teste den in Moodle dokumentierten Ollama-Dienst unter
+\url{https://f2ki-h100-1.f2.htw-berlin.de:11435}.
+
+Die Basis-URL zeigt derzeit die Swagger-Dokumentation eines LiteLLM-Proxys in Version 1.99.0.
+
+Der dokumentierte Endpunkt \texttt{GET /api/tags} liefert HTTP 404 mit \texttt{\{"detail":"Not Found"\}}.
+
+Der dokumentierte Endpunkt \texttt{POST /api/chat} liefert ebenfalls HTTP 404 mit \texttt{\{"detail":"Not Found"\}}.
+
+Der OpenAI-kompatible Endpunkt \texttt{POST /v1/chat/completions} ist erreichbar, liefert ohne API-Schlüssel jedoch HTTP 401 mit der Meldung \texttt{Authentication Error, No api key passed in}.
+
+Auch der bereitgestellte HTW-Ollama-Wrapper verwendet weiterhin \texttt{/api/tags}, \texttt{/api/chat} und \texttt{/api/generate}.
+
+Es ist daher zu klären, ob die Infrastruktur auf LiteLLM umgestellt wurde, wie ein erforderlicher API-Schlüssel bezogen werden kann oder ob eine andere tokenlose Ollama-Adresse beziehungsweise ein zusätzlicher URL-Präfix verwendet werden muss.
+\end{quote}
+
+\chapter{Wissenschaftliche Einordnung}
+
+Die beobachtete Infrastrukturproblematik verdeutlicht die Bedeutung eines stabilen und dokumentierten API-Vertrags für reproduzierbare KI-Anwendungen. Modellname und Prompt allein reichen für eine reproduzierbare Evaluation nicht aus. Zusätzlich müssen die Inferenzschnittstelle, die Proxy-Version, die Authentifizierung, providerspezifische Parameter und das Antwortformat dokumentiert werden.
+
+Die Problematik liefert zugleich eine praktische Begründung für die modulare Trennung folgender Komponenten:
+
+\begin{itemize}
+    \item Aufgaben- und STACK-Integration
+    \item Prompt-Erzeugung
+    \item generische Hilfestufen
+    \item Chat- und Sitzungsverwaltung
+    \item Modellkommunikation
+    \item Fehlerbehandlung
+\end{itemize}
+
+Durch eine abstrakte LLM-Clientschnittstelle kann das Modellbackend gewechselt werden, ohne die didaktische Tutorlogik zu verändern. Dies verbessert die Wartbarkeit, Testbarkeit und Reproduzierbarkeit des Prototyps.
+
+\chapter{Aktueller Befund}
+
+Der aktuelle technische Stand lässt sich wie folgt zusammenfassen:
+
+\begin{table}[htbp]
+\centering
+\caption{Zusammenfassung des aktuellen Infrastrukturstatus}
+\label{tab:current-status}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.40\textwidth}X@{}}
+\toprule
+\textbf{Komponente} & \textbf{Status} \\
+\midrule
+HTW-VPN & funktionsfähig \\
+HTTPS-Verbindung & funktionsfähig \\
+Basis-URL & erreichbar \\
+Sichtbarer Server & LiteLLM über Uvicorn \\
+Native Ollama-Endpunkte & auf der getesteten Instanz nicht verfügbar \\
+LiteLLM-Endpunkt & verfügbar \\
+LiteLLM-Authentifizierung & erforderlich \\
+API-Schlüssel & nicht vorhanden \\
+FastAPI-Tutor-Backend & nicht Ursache des Infrastrukturfehlers \\
+Prompt-Builder & nicht Ursache des Infrastrukturfehlers \\
+Chat-Historie & lokal funktionsfähig und backendunabhängig \\
+Nächster Schritt & Klärung mit dem KI-Lab-Support \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\chapter{Fazit}
+
+Die lokale Tutor-Anwendung ist grundsätzlich so aufgebaut, dass Aufgabeninformationen, Hilfestufen und Chat-Historie unabhängig vom verwendeten LLM-Backend verarbeitet werden können. Das aktuelle Verbindungsproblem entsteht durch eine Abweichung zwischen der dokumentierten nativen Ollama-Schnittstelle und der tatsächlich erreichbaren LiteLLM-Infrastruktur.
+
+Die nativen Ollama-Endpunkte antworteten zum Testzeitpunkt mit HTTP 404. Der sichtbare LiteLLM-Endpunkt war erreichbar, verlangte jedoch einen API-Schlüssel. Ohne eine korrigierte native Ollama-Adresse oder einen gültigen LiteLLM-Schlüssel ist die Hochschulinstanz derzeit nicht für die Tutor-Anwendung nutzbar.
+
+Bis zur Klärung sollte die Entwicklung mit einem lokalen Ollama-Modell fortgesetzt und die LLM-Kommunikation durch eine backendunabhängige Clientschicht abstrahiert werden. Nach Bereitstellung der korrekten Zugangsdaten oder Endpunkte kann das Hochschulmodell eingebunden werden, ohne die Prompt-, Chat- oder Tutorlogik grundlegend zu verändern.
+
+\end{document}

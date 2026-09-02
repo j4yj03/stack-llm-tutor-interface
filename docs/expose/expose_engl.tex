@@ -1,0 +1,600 @@
+\documentclass[11pt,a4paper,oneside,ngerman]{memoir}
+\usepackage[ngerman]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{stmaryrd}
+\usepackage{fancyhdr}
+\usepackage{pdfpages}
+\usepackage{csquotes}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{mathtools}
+\usepackage[euler]{textgreek}
+%\usepackage{siunitx}
+\usepackage{amssymb}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{soul}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[
+    backend=biber,
+    style=alphabetic,
+    sorting=nyt,
+    maxbibnames=99,
+    giveninits=true,
+    doi=true,
+    url=true,
+    isbn=true
+]{biblatex}
+\addbibresource{quellen.bib}
+% hyperref sollte möglichst spät geladen werden.
+\usepackage{hyperref}
+\usepackage{memhfixc}
+\definecolor{htwgreen}{RGB}{137,186,23}
+\definecolor{htwgray}{RGB}{176,178,179}
+\definecolor{bred}{RGB}{128,0,50}
+\definecolor{petrol}{RGB}{22,115,143}
+\definecolor{gray75}{gray}{0.75}
+\title{
+    \textbf{Exposé -- ICT Master's Thesis}
+    \textcolor{htwgreen}{$\rightslice$}
+    \newline
+    Design and Implementation of an LLM Tutor for Digital Mathematics Tasks
+    \newline\newline
+}
+\author{Sidney Göhler}
+\date{\today}
+\hypersetup{
+    colorlinks = true,
+    linkcolor = black,
+    anchorcolor = black,
+    citecolor = bred,
+    filecolor = htwgreen,
+    urlcolor = htwgreen
+}
+\newcommand{\hsp}{\hspace{7pt}}
+\newcommand*{\footcitet}[1]{%
+    \footnote{\citetitle{#1}, \textcite{#1}}%
+}
+\renewcommand*\thesubfigure{\arabic{subfigure}}
+\renewcommand{\thefootnote}{\arabic{footnote}}
+\setulcolor{petrol}
+\setul{5.668pt}{0.547pt}
+\setuloverlap{1.7pt}
+\titleformat{\chapter}[hang]
+    {\Huge\bfseries}
+    {\textcolor{htwgreen}{$\leftslice$} \thechapter\hsp}
+    {7pt}
+    {\Huge\bfseries}
+\titleformat*{\section}{\large\bfseries}
+\titleformat*{\subsection}{\normalfont\bfseries}
+\titleformat*{\subsubsection}{\normalfont\bfseries}
+\titleformat*{\paragraph}{\large\bfseries}
+\titleformat*{\subparagraph}{\large\bfseries}
+\pagestyle{fancy}
+\renewcommand{\chaptermark}[1]{\markboth{#1}{}}
+\renewcommand{\sectionmark}[1]{\markright{#1}{}}
+\fancyhf{}
+\fancyhead[L]{%
+    \textcolor{htwgreen}{$\leftslice$}%
+    \ifnum\value{chapter}>0
+        \thechapter\hspace{7pt}%
+    \fi
+    \textbf{\leftmark}%
+}
+\fancyhead[C]{}
+\fancyhead[R]{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.0pt}
+\renewcommand{\footrulewidth}{0.0pt}
+\setlist[itemize]{leftmargin=2em}
+\setlist[enumerate]{leftmargin=2em}
+\emergencystretch=2em
+\begin{document}
+\maketitle
+\vspace*{5em}
+\begin{abstract}
+This thesis examines the design and implementation of an LLM-based tutor for digital mathematics tasks. Moodle STACK tasks from the field of differential calculus serve as the technical basis. STACK and the underlying computer algebra system Maxima perform the symbolic assessment of mathematical input while a self-hosted Large Language Model generates adaptive didactic hints. Tutor control is implemented through an explicit prompt workflow with graduated assistance and rules to prevent immediate solution disclosure. In addition the thesis investigates how Maxima or a headless STACK instance can be integrated as a mathematical verification tool or as an invocable tool of an LLM agent. The technical orchestration is to be implemented prototypically through a workflow platform such as n8n. The prototype is evaluated using a set of differential calculus tasks with typical errors. An exploratory trial with students using the think-aloud method is optionally planned.
+\end{abstract}
+\cleardoublepage
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+\pagestyle{fancy}
+\chapter{Background and Problem Statement}
+Digital exercise and assessment systems are firmly established in foundational mathematics courses at universities. In particular the open-source e-assessment system \textbf{STACK} which can be used as a question type in Moodle enables the symbolic assessment of mathematical input based on the computer algebra system Maxima \autocite{sangwin2013computer,stackdocumentation}. This allows not only numerical final results but also algebraically equivalent expressions to be recognized and assessed. Through so-called \textbf{Potential Response Trees} (PRTs) instructors can model typical error patterns identify them through symbolic tests and provide specific feedback \autocite{stackdocumentation}.
+Despite these strengths feedback in STACK tasks is generally predefined. It must be formulated by instructors for individual response and error cases and can respond only to a limited extent to individual solution paths forms of expression or difficulties in understanding. Formative feedback is considered particularly conducive to learning when it supports the next action step is formulated clearly and promotes learners' self-regulation \autocite{hattie2007feedback,shute2008feedback,nicol2006formative}. Current Large Language Models (LLMs) on the other hand open up new possibilities for adaptive linguistically differentiated and dialogue-oriented learning support. LLMs can generate explanations formulate activating follow-up questions and adapt hints to the respective state of completion.
+The use of LLMs in mathematical learning environments is however associated with specific risks. These include in particular factually incorrect statements hallucinations unreliable mathematical assessments and the immediate output of complete solutions \autocite{kasneci2023chatgpt,[IBAN_REDACTED],nye2023generative}. An LLM should therefore not be used as the sole mathematical assessment authority. Instead a neuro-symbolic division of responsibilities appears appropriate: A deterministic mathematical system verifies formal correctness while the LLM handles the didactic and linguistic presentation. Current work shows that combining LLMs with symbolic computation and verification components can reduce mathematical errors and hallucinations \autocite{imani2023mathprompter,meurer2017sympy,wang2026lowhallucination}.
+The planned thesis addresses this interface. STACK and Maxima are intended to perform the mathematical assessment and where applicable error diagnosis. An external self-hosted LLM is intended to generate adaptive didactic hints based on task information the student response and available verification results. The thesis also investigates whether Maxima or a headless STACK instance can be integrated into the tutor workflow as an invocable tool. Such an integration could be implemented through a defined interface or agent-like tool use and could be employed to verify mathematical expressions intermediate steps or generated tutor hints.
+In contrast to approaches in which a symbolic solver subsequently verifies only solutions generated by the LLM the symbolic component here is intended primarily to assess the student response and provide a controlled basis for tutorial hint generation.
+The individual components can be orchestrated prototypically through a workflow platform such as \textit{n8n} \autocite{n8ndocumentation}. A possible workflow includes receiving STACK data selecting task-specific contextual information optionally calling Maxima or headless STACK generating a structured prompt calling the self-hosted LLM and returning a tutor hint.
+The selected subject domain is \textbf{differential calculus}. The investigation is therefore not limited exclusively to the chain rule or nested exponential functions but is extended to a manageable set of typical differentiation tasks. This may include for example the power product quotient and chain rules as well as combinations of these rules.
+\hspace{1 cm}\\
+Correct completion requires among other things application of the chain rule differentiation of the inner exponent and consideration of the constant factor. Typical errors can either be identified by an appropriately modeled PRT or alternatively analyzed through a mathematical verification workflow using Maxima or headless STACK. A comparison of both approaches is planned as an optional investigation.
+\chapter{Research Question}
+The central research question of the thesis is:
+\begin{quote}
+\textbf{How can a self-hosted LLM tutor for digital mathematics tasks be designed and implemented so that it supports students through adaptive hints based on symbolic mathematical verification without immediately providing the complete solution?}
+\end{quote}
+\hspace{1 cm}\\
+The following subquestions arise from this overarching research question:
+\begin{enumerate}
+    \item \textbf{Information Transfer and System Architecture} \\
+    What information must be transferred from a digital mathematics task to the LLM tutor in order to generate task-specific and error-related assistance?
+    \item \textbf{Symbolic Verification and Error Diagnosis} \\
+    How can STACK Potential Response Trees Maxima or a headless STACK instance be used to verify student responses and where applicable to safeguard generated tutor hints?
+    \item \textbf{Comparison of Diagnostic Approaches} \\
+    What differences arise between error diagnosis modeled in advance by instructors using PRTs and dynamic mathematical analysis using Maxima or headless STACK?
+    \item \textbf{Prompt and Workflow Design} \\
+    How must the prompt tutor policy and technical process control be designed so that the LLM generates mathematically correct understandable and didactically appropriate hints?
+    \item \textbf{Prevention of Solution Disclosure} \\
+    How can graduated assistance and a tutor workflow embedded in the prompt reduce the risk that the LLM immediately outputs the complete solution?
+    \item \textbf{Model Selection} \\
+    Which self-hosted LLM is suitable for the considered use case in terms of mathematical reliability quality of German-language expression compliance with the tutor policy and response time?
+    \item \textbf{Technical and Didactic Quality} \\
+    How reliably does the prototype function for a set of typical differential calculus tasks and how should the generated hints be evaluated regarding mathematical correctness relation to the error comprehensibility helpfulness and solution disclosure?
+\end{enumerate}
+\chapter{Objectives}
+The objective of the thesis is the design prototypical implementation and evaluation of an LLM tutor for digital mathematics tasks in the field of differential calculus.
+The prototype is intended to realize an information chain between a digital task a symbolic mathematical verification system and a self-hosted LLM. STACK and Maxima perform the formal mathematical assessment. The LLM performs the linguistic and didactic formulation of hints. For this purpose task information student responses verification results and where applicable PRT diagnosis codes are processed in a controlled workflow.
+\hspace{1 cm}\\
+Specifically the thesis pursues the following objectives:
+\begin{itemize}
+    \item Analysis of scientific work and existing commercial systems concerning digital mathematics tutors LLM-based feedback RAG symbolic verification and intelligent tutoring systems,
+    \item Development of a technical interface for transferring relevant information between STACK the tutor workflow the symbolic verification system and the LLM,
+    \item Prototypical integration of Maxima or headless STACK for the mathematical verification of responses or generated expressions,
+    \item Investigation of an optional tool or agent interface through which the LLM can request defined mathematical verification operations,
+    \item Orchestration of the tutor workflow for example with n8n,
+    \item Selection and testing of at least one self-hosted LLM,
+    \item Development of a prompt workflow with graduated assistance and explicit rules for preventing solution disclosure,
+    \item Comparison of different context and diagnosis conditions,
+    \item Technical evaluation using a curated task set with typical incorrect responses,
+    \item Optional inclusion of anonymized real student responses provided that they are legally and organizationally available,
+    \item Optional exploratory trial with students using the think-aloud method,
+    \item Derivation of design recommendations for LLM-based mathematics tutors.
+\end{itemize}
+The thesis is explicitly designed as a prototypical investigation. Complete production integration into Moodle comprehensive rights management a large-scale empirical effectiveness study and coverage of arbitrary mathematical topics are not part of the thesis.
+\chapter{Object of Study and Scope}
+The object of study is a self-hosted LLM tutor for digital mathematics tasks that is connected to a symbolic mathematical verification system.
+\hspace{1 cm}\\
+The scope is limited to:
+\begin{itemize}
+    \item mathematical topic: differential calculus,
+    \item task types: selected tasks on fundamental differentiation rules,
+    \item mathematical verification: STACK and Maxima as well as optionally headless STACK,
+    \item model operation: self-hosted LLM,
+    \item technical orchestration: prototypical workflow for example through n8n,
+    \item didactic focus: adaptive and graduated hints without immediate solution disclosure,
+    \item evaluation focus: technical functionality and quality of tutor hints.
+\end{itemize}
+The following are not considered:
+\begin{itemize}
+    \item a complete production-ready Moodle plugin,
+    \item a general tutoring platform for arbitrary mathematical subject areas,
+    \item mathematical assessment performed solely by the LLM,
+    \item extensive learning analytics functions,
+    \item a large-scale quantitative effectiveness study,
+    \item implementation of an extensive embedding-based vector database.
+\end{itemize}
+An extensive vector database is omitted from the prototype. Since the area of investigation is limited to a curated set of differential calculus tasks and structured selection features are already available through task ID task type diagnosis code and hint level the relevant context can be loaded deterministically from a file-based or database-based knowledge base. Semantic vector search is discussed as a possible extension for larger and more heterogeneous task collections.
+\chapter{Methodological Approach}
+The thesis follows a development-oriented research approach. The focus is on the design implementation and evaluation of a technical artifact. The approach includes a literature and market analysis a requirements analysis prototypical software development and a technical and didactic-qualitative evaluation.
+\section{Literature and Market Analysis}
+Initially the scientific and technical state of the art is analyzed. The literature review includes work on mathematical e-assessment intelligent tutoring systems LLM-based learning support Retrieval-Augmented Generation symbolic verification and formative feedback. STACK and computer-algebra-based assessment are examined in particular using the foundational account by \textcite{sangwin2013computer} and the current STACK documentation \autocite{stackdocumentation}.
+The literature review covers in particular:
+\begin{itemize}
+    \item STACK and computer-algebra-based e-assessment,
+    \item intelligent tutoring systems and automatic hint generation,
+    \item LLM-based mathematics tutors,
+    \item Retrieval-Augmented Generation and deterministic context augmentation,
+    \item neuro-symbolic systems and symbolic solver feedback,
+    \item prompt design and graduated tutor hints,
+    \item formative feedback and prevention of solution disclosure,
+    \item think-aloud as a qualitative evaluation method.
+\end{itemize}
+For the didactic design of the hints work on formative feedback and intelligent tutoring systems is considered in particular. \textcite{vanlehn2006behavior} describes graduated hint sequences as an essential element of tutoring systems. Further studies investigate the automatic generation use and design of hints \autocite{stamper2010hints,razzaq2010hints,kochmar2022interventions,maniktala2020help}.
+Work on Retrieval-Augmented Generation is relevant for context augmentation. The foundational RAG method was introduced by \textcite{lewis2020rag}. Current surveys classify different retrieval generation and evaluation strategies \autocite{gao2023ragsurvey,mialon2023augmented}. For mathematical learning support the study by \textcite{levonian2023ragmath} is particularly relevant. It shows that RAG can improve the curricular grounding of mathematical tutor responses while especially strong binding to retrieved materials does not necessarily lead to higher human preference.
+Current neuro-symbolic work combines LLMs with external computation or verification tools. This includes the use of a code scratchpad for mathematical tutoring \autocite{upadhyay2023scratchpad} symbolic computation with SymPy \autocite{meurer2017sympy} and the combination of a mathematical RAG system with symbolic solver feedback \autocite{wang2026lowhallucination}. These studies provide an important basis for the planned integration of Maxima or headless STACK.
+Existing commercial and institutional offerings are also considered. These include general LLM systems mathematics-specific solvers adaptive learning platforms and university-based AI tutors. Potential reference systems include Khanmigo \autocite{khanmigo} WolframAlpha \autocite{wolframalpha} Möbius \autocite{maplesoftmobius} and the \textit{KI \& ME} offering of Magdeburg-Stendal University of Applied Sciences \autocite{kiandme}. The objective is to situate the planned solution rather than to conduct a comprehensive market study.
+\section{Requirements Analysis}
+Based on the literature and market analysis the functional didactic and technical requirements for the prototype are defined. The following questions are considered in particular:
+\begin{itemize}
+    \item What information can be provided by STACK or a comparable digital task?
+    \item What information does the LLM require to generate a helpful hint?
+    \item Which mathematical verification operations must be provided by Maxima or headless STACK?
+    \item Which information may be used at the respective hint levels?
+    \item How should the tutor respond when no reliable diagnosis is available?
+    \item How are erroneous manipulated or insufficient inputs handled?
+    \item What requirements apply to data protection traceability and response time?
+\end{itemize}
+The result is a requirements catalogue for the system architecture tutor workflow and evaluation.
+\section{Selection and Modeling of the Task Set}
+A limited task set from differential calculus is compiled for the evaluation. It should cover different differentiation rules and typical error classes for example:
+\begin{itemize}
+    \item Power rule
+    \item Product rule
+    \item Quotient rule
+    \item Chain rule
+    \item Differentiation of exponential and trigonometric functions
+    \item Combination of several differentiation rules
+\end{itemize}
+Typical incorrect responses are defined for each task. These can be derived from didactic literature instructors' experience existing PRT structures and where available anonymized real student responses.
+\hspace{1 cm}\\\\
+An exemplary task is:
+\[
+f(x)=-5e^{x^2-2e^x}.
+\]
+\hspace{1 cm}\\
+Possible errors are:
+\begin{itemize}
+    \item Missing inner derivative
+    \item Incorrect derivative of \(e^x\)
+    \item Incorrect derivative of \(x^2\)
+    \item Omitted constant factor
+    \item Sign error
+    \item Differentiation of only the inner exponent
+\end{itemize}
+In a STACK task such error patterns are modeled by the authors in the PRT. The PRT then identifies the errors through symbolic tests. Optionally the thesis investigates to what extent dynamic analysis with Maxima or headless STACK can generate comparable or complementary information.
+\section{Development of the Technical Prototype}
+The prototype is intended to realize the following information and processing chain:
+\[
+\begin{aligned}
+\text{digital mathematics task}
+&\rightarrow \text{Tutor workflow} \\
+&\rightarrow \text{STACK/Maxima or headless STACK} \\
+&\rightarrow \text{self-hosted LLM} \\
+&\rightarrow \text{Tutor interface}.
+\end{aligned}
+\]
+For the prototypical Moodle STACK connection a feedback link can be used that transfers a task ID the student response and where applicable a PRT diagnosis code to the tutor interface. Direct reintegration of the hint into the original STACK interface is optional and is not a mandatory requirement of the minimal prototype.
+\hspace{1 cm}\\
+The prototype should provide at least the following functions:
+\begin{itemize}
+    \item Receiving a task ID and student response
+    \item Receiving or determining a diagnosis code
+    \item Validating the transferred data
+    \item Loading task-specific contextual information
+    \item Calling Maxima or headless STACK for mathematical verification
+    \item Generating a structured tutor prompt
+    \item Calling a self-hosted LLM
+    \item Displaying or returning the generated hint
+    \item Logging the technical data required for the evaluation
+\end{itemize}
+\section{Integration of Maxima and Headless STACK}
+Maxima or headless STACK is to be integrated into the tutor workflow as a deterministic mathematical component. The following variants can be investigated:
+\begin{enumerate}
+    \item \textbf{PRT-Based Diagnosis} \\
+    STACK assesses the response and transfers a diagnosis code determined by the PRT to the tutor.
+    \item \textbf{Direct Maxima Call} \\
+    The workflow transfers mathematical expressions to a Maxima interface and receives for example results concerning equivalence difference simplification or differentiation.
+    \item \textbf{Headless STACK Verification} \\
+    A STACK verification environment is called without a Moodle interface to reuse existing STACK tests and PRT logic.
+    \item \textbf{Tool Use by an Agent} \\
+    Within a strictly limited workflow the LLM can request defined mathematical verification tools. The tool results are then used to formulate the hint.
+\end{enumerate}
+The agent-based variant is implemented only if it provides a recognizable benefit over a deterministic workflow within the available timeframe. The LLM is not granted unrestricted execution or assessment authority.
+\section{Workflow Orchestration with n8n}
+The technical process control can be implemented prototypically with \textit{n8n}. A possible workflow includes:
+\begin{enumerate}
+    \item Receiving the request from STACK
+    \item Checking and normalizing the input parameters
+    \item Loading the task and tutor metadata
+    \item Calling Maxima or headless STACK
+    \item Selecting the hint level and associated prompt workflow
+    \item Calling the self-hosted LLM
+    \item Optional mathematical or rule-based verification of the LLM output
+    \item Returning the tutor hint
+    \item Storing technical measurements for the evaluation
+\end{enumerate}
+It must be examined whether n8n is used as the complete orchestration layer or whether individual functions are implemented in a supplementary Python application. The decision is based on traceability maintainability functionality and implementation effort.
+\section{Context and Knowledge Base}
+The knowledge base is curated for the limited task set and may contain the following components:
+\begin{itemize}
+    \item Task text and task ID
+    \item Mathematical topic and learning objective
+    \item Relevant differentiation rules
+    \item Model solution and verified intermediate steps
+    \item Typical errors and PRT diagnosis codes
+    \item Suitable tutor strategies
+    \item Rules for the individual hint levels
+    \item Permitted and prohibited content of a hint
+\end{itemize}
+The context selection is expected to be deterministic based on task ID diagnosis code and hint level. This approach reduces technical complexity and avoids additional retrieval errors with a small structured knowledge base. The approach can be described as retrieval-supported context augmentation while a classical embedding-based RAG architecture with a vector database is not a mandatory part of the prototype.
+The approach adopts the basic idea of Retrieval-Augmented Generation by providing external and curated knowledge at generation time \autocite{lewis2020rag}. Due to the limited and structured task collection embedding-based vector search is omitted. Instead context selection is performed deterministically using already available metadata. This decision is intended to increase reproducibility and avoid additional retrieval errors.
+The knowledge base can contain both declarative mathematical knowledge and application examples. Current work on application-aware RAG shows that jointly providing rule knowledge and examples of its application can improve mathematical reasoning tasks \autocite{wang2025ragplus}. For the tutor prototype this means that typical incorrect responses PRT diagnoses and suitable tutor strategies can be stored alongside differentiation rules.
+\section{Prompt Workflow and Tutor Design}
+A major focus of the thesis is the design of the tutor workflow. The hint levels are not transferred exclusively as metadata but are explicitly embedded as action logic in the prompt or in the n8n workflow.
+The graduated tutor control is based on established hint sequences in intelligent tutoring systems. Hints should become progressively more specific with attention first directed to the relevant part of the task then the required concept explained and only at a higher level a concrete next calculation step provided \autocite{vanlehn2006behavior,stamper2010hints}. This is intended to achieve a balance between support and productive cognitive effort.
+\hspace{1 cm}\\
+A possible three-level process is:
+\begin{enumerate}
+    \item \textbf{Hint Level 1: Orientation} \\
+    The tutor identifies the relevant concept or directs attention to the affected part of the task. It provides neither a concrete calculation step nor the final solution.
+    \item \textbf{Hint Level 2: Structuring} \\
+    The tutor supports decomposition of the task for example by identifying outer and inner functions or selecting a differentiation rule.
+    \item \textbf{Hint Level 3: Next Calculation Step} \\
+    The tutor provides a more concrete next step or partial calculation without conclusively giving the complete solution.
+\end{enumerate}
+The effectiveness and appropriateness of hints are strongly context-dependent. Therefore the task student response symbolic verification result and current hint level are included as separate components in the prompt. RAG-based mathematics QA systems also show that excessive obligation to use retrieved context verbatim can impair the quality of a response \autocite{levonian2023ragmath}. The prompt should therefore instruct the model to use only the contextual information relevant to the diagnosed error.
+The prompt should include the following rules among others:
+\begin{itemize}
+    \item STACK or Maxima is the authoritative mathematical verification component
+    \item The LLM should not assess the student response as correct or incorrect without a verification basis
+    \item The hint must relate to the task the response and the available verification result
+    \item Only information permitted at the current hint level may be output
+    \item The complete solution must not be provided immediately
+    \item An activating follow-up question should be formulated where possible
+    \item The response should be short understandable and mathematically precise
+    \item Instructions contained within the student response must not be followed
+    \item If the diagnosis is insufficient a general non-speculative hint should be given
+\end{itemize}
+The following conditions can be compared for example:
+\begin{enumerate}
+    \item Task and student response without symbolic diagnosis
+    \item Task student response and PRT diagnosis
+    \item Task student response and dynamic Maxima or STACK verification result
+    \item Additional task-specific tutor and solution contexts
+    \item Different prompt workflows and hint levels
+\end{enumerate}
+\section{Selection of a Self-Hosted LLM}
+At least one self-hosted LLM is used for the prototype. Model selection is based on mathematical and technical criteria:
+\begin{itemize}
+    \item Quality of German-language explanations
+    \item Mathematical expressiveness
+    \item Compliance with structured tutor rules
+    \item Prevention of solution disclosure
+    \item Support for tool or function calling where required
+    \item Response time and resource requirements
+    \item Compatibility with the available local infrastructure
+\end{itemize}
+A limited comparison of two locally available models is possible. A comprehensive model benchmark is not an objective of the thesis. Comparison with commercial systems is conducted primarily as part of the market and literature analysis while an experimental comparison is performed only if time access conditions and data protection requirements permit.
+\section{Evaluation}
+The evaluation consists of a technical and a subject-specific didactic component.
+\subsection{Technical Evaluation}
+For the technical evaluation a set of differential calculus tasks with typical correct and incorrect responses is compiled. Where available and legally permissible under data protection requirements anonymized real student responses may be included. Otherwise plausible incorrect responses are constructed based on PRT structures instructor experience and literature.
+\hspace{1 cm}\\
+The following aspects are examined in particular:
+\begin{itemize}
+    \item Correct transfer of information from STACK
+    \item Correct encoding of mathematical input
+    \item Correct assignment of task ID and context
+    \item Correct recognition or transfer of the PRT diagnosis code
+    \item Functionality of the Maxima or headless STACK integration
+    \item Agreement of symbolic verification results with expected results
+    \item Correct execution of the n8n workflow
+    \item Correct selection of the hint level
+    \item Successful communication with the self-hosted LLM
+    \item Stability with syntactically incorrect and unexpected inputs
+    \item Response times of the individual system components and the overall workflow
+\end{itemize}
+Optionally the reliability with which typical errors are identified by predefined PRT branches and by dynamic Maxima or headless STACK analysis is compared.
+\subsection{Subject-Specific Didactic Evaluation}
+The generated tutor hints are assessed using a criteria grid. Possible criteria include:
+\begin{itemize}
+    \item Mathematical correctness
+    \item Agreement with the symbolic verification result
+    \item Fit with the student response
+    \item Fit with the PRT diagnosis code or error case
+    \item Comprehensibility
+    \item Helpfulness for the next solution step
+    \item Appropriateness of the hint level
+    \item Prevention of solution disclosure
+    \item Activation of learners through follow-up questions
+    \item Linguistic precision
+\end{itemize}
+The assessment can be performed by instructors or tutors. Both Likert scales and binary characteristics can be used for central criteria for example:
+\begin{itemize}
+    \item Contains a mathematically incorrect statement: yes/no
+    \item Contains the complete solution: yes/no
+    \item Refers to the diagnosed error: yes/no
+    \item Corresponds to the intended hint level: yes/no
+\end{itemize}
+\subsection{Optional Think-Aloud Trial}
+Optionally a small exploratory trial with students can be conducted. The \textbf{think-aloud method} is suitable for this purpose in which participants verbalize their thoughts while working on the tasks \autocite{ericsson1993protocol,vanSomeren1994thinkaloud}. Students work on selected tasks receive generated hints and verbalize their interpretation of the hint as well as the resulting solution steps.
+\hspace{1 cm}\\
+Possible guiding questions are:
+\begin{itemize}
+    \item Was the hint understandable?
+    \item Did the hint help identify the student's own error?
+    \item Did the hint support an independent next step?
+    \item Was the hint too general appropriate or too direct?
+    \item Was the solution anticipated?
+    \item Would such a tutor be perceived as helpful during independent practice?
+\end{itemize}
+The qualitative investigation does not aim to demonstrate general learning effectiveness but rather to explore comprehensibility usefulness and didactic appropriateness.
+\chapter{Expected Results and Scientific Contribution}
+The expected result of the thesis is a functional prototype connecting a digital mathematics task with a symbolic verification system and a self-hosted LLM tutor. In addition a defined tutor workflow prompt templates graduated assistance a curated task and knowledge base and an evaluation dataset are to be produced.
+The scientific contribution lies in particular in the systematic investigation of the division of responsibilities between symbolic mathematics and generative language processing. While STACK or Maxima performs mathematical verification the LLM is intended to formulate didactic hints based on controlled verification results.
+\hspace{1 cm}\\
+The expected contribution includes:
+\begin{enumerate}
+    \item A prototypical integration concept for digital mathematics tasks symbolic verification and LLM tutoring
+    \item An investigation of the integration of Maxima or headless STACK into a tutor workflow
+    \item A comparison between PRT-based error diagnosis and optional dynamic symbolic analysis
+    \item A prompt and workflow approach for graduated assistance
+    \item An assessment of self-hosted LLMs for the considered tutor use case
+    \item A technical and subject-specific didactic evaluation using typical incorrect responses
+    \item Design recommendations for future LLM-based mathematics tutors
+\end{enumerate}
+\chapter{Sources and Current State of the Art}
+The thesis is situated at the intersection of mathematical e-assessment intelligent tutoring systems generative AI neuro-symbolic systems and formative feedback. The sources therefore include established research on automated mathematical assessment and tutor hints as well as current work on LLM-based mathematics tutors Retrieval-Augmented Generation and symbolic verification.
+\section{Mathematical E-Assessment and STACK}
+STACK enables symbolic assessment of mathematical responses with Maxima \autocite{sangwin2013computer,stackdocumentation}. Potential Response Trees allow typical error patterns to be identified through symbolic tests defined by instructors and differentiated feedback to be provided. Research on STACK emphasizes its mathematical expressiveness and opportunities for formative feedback while also noting the effort required for task creation PRT modeling and maintenance of feedback logic.
+For the planned thesis STACK is relevant both as the source system for digital tasks and as a possible headless verification component. The thesis investigates how existing PRT diagnoses can be made usable for an LLM tutor and whether an additional dynamic integration of Maxima or headless STACK provides added value.
+\section{LLM-Based Mathematics Tutors and Hint Generation}
+Current studies examine LLMs for mathematical question answering feedback generation and graduated hint generation \autocite{aleven2023future,levonian2023ragmath}. A central challenge is supporting learners without anticipating the complete solution. Research on intelligent tutoring systems describes hint sequences in which hints become progressively more specific \autocite{vanlehn2006behavior,stamper2010hints}. These approaches provide a foundation for the prompt workflow planned in this thesis.
+Research on LLM-generated mathematics hints also shows that such hints are not consistently reliable enough to be presented to learners without verification. Instructor oversight symbolic verification structured prompt rules and task-specific context are therefore considered important safeguards \autocite{kasneci2023chatgpt,nye2023generative}.
+\section{Retrieval-Augmented Generation and Context Control}
+Retrieval-Augmented Generation combines language-model generation with externally retrieved knowledge \autocite{lewis2020rag}. Work on mathematical question answering shows that RAG can improve mathematical and curricular grounding \autocite{levonian2023ragmath}. At the same time there is a trade-off between strong adherence to retrieved materials and the linguistic or didactic quality of the response. High groundedness is not automatically equivalent to high correctness relevance or helpfulness.
+Application-aware extensions such as RAG+ supplement retrieved domain knowledge with examples of its practical application and show improvements in mathematical reasoning tasks \autocite{wang2025ragplus}. However no extensive vector database is planned for the limited prototype. Instead task ID diagnosis code and hint level are used for deterministic selection of curated contextual information.
+\section{Symbolic Verification and Neuro-Symbolic Approaches}
+Current work combines LLMs and RAG with computer algebra systems code execution environments or symbolic solvers \autocite{imani2023mathprompter,upadhyay2023scratchpad,wang2026lowhallucination}. Generated calculation steps or final results are verified for example with SymPy \autocite{meurer2017sympy}. Such work shows that retrieval alone does not reliably prevent symbolic execution errors and that a deterministic mathematical control component is useful.
+The planned thesis builds on these neuro-symbolic approaches but adopts a different focus. The symbolic system is not intended only to verify an LLM-generated solution after generation. Instead STACK PRTs Maxima or headless STACK are intended to assess or diagnose the student response and provide the LLM with a controlled basis for didactic hint generation.
+\newpage
+\section{Commercial and Institutional Systems}
+\hspace{1 cm}\\
+Various systems for mathematical support already exist:
+\begin{itemize}
+    \item General LLM-based chatbots such as \textit{ChatGPT} \textit{Claude} \textit{Gemini} \textit{Microsoft Copilot} and \textit{Perplexity}
+    \item Mathematics-specific tutor and solver systems such as \textit{Photomath} \textit{Symbolab} \textit{Mathway} \textit{WolframAlpha Pro} and \textit{Microsoft Math Solver}
+    \item E-assessment systems such as \textit{Möbius} \textit{ALEKS} \textit{MyMathLab} \textit{WirisQuizzes} \textit{STACK} and \textit{WeBWorK}
+    \item Adaptive tutoring systems and learning platforms such as \textit{Khanmigo} \textit{Carnegie Learning/MATHia} \textit{Squirrel AI} and \textit{Querium}
+    \item Institutional higher education offerings such as \textit{KI \& ME} at Magdeburg-Stendal University of Applied Sciences
+\end{itemize}
+These systems cover partial aspects such as solution generation symbolic computation adaptive learning paths automated assessment or dialogical support. However a transparent and self-hosted combination of STACK or Maxima verification an explicit tutor workflow and didactically controlled LLM hint generation is not established as a general standard solution.
+\section{Research Gap}
+The general combination of LLMs RAG and symbolic solvers is already a subject of current research. The research gap therefore cannot be regarded as the first combination of these technologies.
+However the targeted use of symbolic assessment or error diagnosis of student responses to control a didactically oriented LLM tutor has received less attention. In particular the combination of:
+\begin{itemize}
+    \item Digital mathematics tasks
+    \item PRT-based diagnosis codes
+    \item Maxima or headless STACK as a mathematical verification authority
+    \item A self-hosted LLM
+    \item An explicit tutor workflow with hint levels
+    \item And the systematic prevention of solution disclosure
+\end{itemize}
+has so far received insufficient investigation. This combination constitutes the central object of study of the thesis.
+\chapter{Schedule}
+A possible schedule for a processing period of 19 weeks is shown in Table~\ref{tab:zeitplan}.
+\begin{table}[htbp]
+\centering
+\caption{Preliminary Schedule}
+\label{tab:zeitplan}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.25\textwidth}p{0.15\textwidth}X@{}}
+\toprule
+\textbf{Phase} & \textbf{Period} & \textbf{Content} \\
+\midrule
+Literature and market analysis
+& Weeks 1--3
+& Research on STACK Maxima headless STACK LLM tutoring symbolic verification prompt design and commercial and institutional systems \\
+\addlinespace
+Requirements analysis and scope definition
+& Week 4
+& Refinement of the architecture evaluation questions task types and minimum requirements \\
+\addlinespace
+Task and error corpus
+& Weeks 5--6
+& Selection of differential calculus tasks definition of typical errors and examination of the availability of anonymized real student responses \\
+\addlinespace
+Technical base integration
+& Weeks 7--8
+& Information transfer from STACK development of the tutor interface parameter validation and context management \\
+\addlinespace
+Maxima and STACK integration
+& Weeks 9--10
+& Implementation and testing of a Maxima or headless STACK interface and optional comparison with PRT diagnoses \\
+\addlinespace
+n8n and LLM workflow
+& Weeks 11--12
+& Workflow orchestration connection of the self-hosted LLM error handling and logging \\
+\addlinespace
+Prompt and tutor design
+& Weeks 13--14
+& Development and testing of the graduated prompt workflow rules against solution disclosure and model selection \\
+\addlinespace
+Technical evaluation
+& Weeks 15--16
+& Tests with tasks and typical incorrect responses measurement of verification results stability and response times \\
+\addlinespace
+Didactic evaluation
+& Week 17
+& Expert assessment and where feasible an exploratory think-aloud trial \\
+\addlinespace
+Analysis and discussion
+& Week 18
+& Analysis of the results answering the research questions and derivation of design recommendations \\
+\addlinespace
+Completion
+& Week 19
+& Completion revision formal review and submission of the thesis \\
+\bottomrule
+\end{tabularx}
+\end{table}
+The written documentation is produced in parallel with development and evaluation. If individual optional components in particular the agent integration or the think-aloud trial cannot be realized within the available timeframe the focus will be placed on the deterministic workflow and the technical and subject-specific didactic evaluation.
+\chapter{Preliminary Outline}
+\begin{enumerate}
+    \item \textbf{Introduction}
+    \begin{enumerate}
+        \item Motivation and Problem Statement
+        \item Objectives
+        \item Research Questions
+        \item Scope
+        \item Structure of the Thesis
+    \end{enumerate}
+    \item \textbf{Theoretical and Technical Foundations}
+    \begin{enumerate}
+        \item Digital Mathematics Tasks and E-Assessment
+        \item Moodle STACK and Potential Response Trees
+        \item Maxima and Headless STACK
+        \item Large Language Models and Self-Hosted Model Inference
+        \item LLM-Based Mathematics Tutors and Hint Generation
+        \item Retrieval-Augmented Generation and Context Augmentation
+        \item Neuro-Symbolic Systems and Symbolic Verification
+        \item Formative Feedback and Graduated Assistance
+    \end{enumerate}
+    \item \textbf{State of Research and Technology}
+    \begin{enumerate}
+        \item Scientific Work on LLM Tutoring
+        \item RAG for Mathematical Learning Support
+        \item Symbolic Solvers in LLM Systems
+        \item Commercial and Institutional Offerings
+        \item Research Gap
+    \end{enumerate}
+    \item \textbf{Requirements Analysis and Design}
+    \begin{enumerate}
+        \item Subject-Specific Scope in Differential Calculus
+        \item Functional and Didactic Requirements
+        \item System Architecture and Data Flow
+        \item Task and Context Model
+        \item PRT-Based and Dynamic Diagnosis
+        \item Tutor Workflow and Hint Levels
+        \item Security and Data Protection Considerations
+    \end{enumerate}
+    \item \textbf{Prototypical Implementation}
+    \begin{enumerate}
+        \item STACK Integration and Parameter Transfer
+        \item Tutor Interface
+        \item Integration of Maxima or Headless STACK
+        \item n8n Workflow
+        \item Integration of the Self-Hosted LLM
+        \item Prompt and Tutor Policy
+        \item Error Handling and Logging
+    \end{enumerate}
+    \item \textbf{Evaluation}
+    \begin{enumerate}
+        \item Evaluation Design and Task Set
+        \item Typical and Real Student Errors
+        \item Technical Evaluation
+        \item Comparison of Diagnostic Approaches
+        \item Subject-Specific Didactic Assessment
+        \item Optional Think-Aloud Trial
+    \end{enumerate}
+    \item \textbf{Results and Discussion}
+    \begin{enumerate}
+        \item Results of the Technical Implementation
+        \item Quality and Reliability of Mathematical Verification
+        \item Quality of the Generated Tutor Hints
+        \item Compliance with Hint Levels and Solution Disclosure
+        \item Suitability of the Self-Hosted LLM
+        \item Limitations of the Prototype
+    \end{enumerate}
+    \item \textbf{Conclusion and Outlook}
+    \begin{enumerate}
+        \item Answering the Research Questions
+        \item Key Findings
+        \item Design Recommendations
+        \item Outlook on Production Moodle Integration Larger Task Collections and Advanced Agent Architectures
+    \end{enumerate}
+\end{enumerate}
+\cleardoublepage
+\printbibliography[
+    heading=bibintoc,
+    title={References}
+]
+\end{document}
