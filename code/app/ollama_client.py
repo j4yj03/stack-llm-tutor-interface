@@ -1,4 +1,3 @@
-import json
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -16,7 +15,11 @@ MAX_ERROR_BODY_LENGTH = 1000
 
 
 class OllamaClientError(RuntimeError):
-    """Fehler beim Zugriff auf die Ollama-API."""
+    """
+    Fehler beim Zugriff auf den LiteLLM-Proxy.
+
+    Der Klassenname bleibt aus Kompatibilitätsgründen bestehen.
+    """
 
 
 SESSION = requests.Session()
@@ -37,14 +40,13 @@ def _parse_json_response(
         data = response.json()
     except ValueError as exc:
         raise OllamaClientError(
-            "Ollama lieferte keine gültige "
-            "JSON-Antwort: "
+            "LiteLLM lieferte keine gültige JSON-Antwort: "
             f"{response.text[:MAX_ERROR_BODY_LENGTH]}"
         ) from exc
 
     if not isinstance(data, dict):
         raise OllamaClientError(
-            "Ollama lieferte kein JSON-Objekt"
+            "LiteLLM lieferte kein JSON-Objekt"
         )
 
     return data
@@ -55,9 +57,12 @@ def _post(
     payload: Dict[str, Any]
 ) -> Dict[str, Any]:
     url = (
-        f"{OLLAMA_BASE_URL}/"
+        f"{OLLAMA_BASE_URL.rstrip('/')}/"
         f"{endpoint.lstrip('/')}"
     )
+
+    print(f"LiteLLM POST URL: {url}")
+    print(f"LiteLLM Modell: {payload.get('model')}")
 
     try:
         response = SESSION.post(
@@ -81,15 +86,16 @@ def _post(
 
     except requests.exceptions.ConnectionError as exc:
         raise OllamaClientError(
-            "Keine Verbindung zur Ollama-API "
+            "Keine Verbindung zur LiteLLM-API "
             f"unter {url} möglich"
         ) from exc
 
     except requests.exceptions.HTTPError as exc:
         raise OllamaClientError(
-            "Ollama antwortete mit HTTP "
-            f"{response.status_code}: "
-            f"{response.text[:MAX_ERROR_BODY_LENGTH]}"
+            f"POST {url} antwortete mit HTTP "
+            f"{response.status_code} "
+            f"Modell={payload.get('model')} "
+            f"Antwort={response.text[:MAX_ERROR_BODY_LENGTH]}"
         ) from exc
 
     except requests.exceptions.RequestException as exc:
@@ -110,6 +116,7 @@ def _validate_messages(
 
     allowed_roles = {
         "system",
+        "developer",
         "user",
         "assistant",
         "tool"
@@ -121,13 +128,13 @@ def _validate_messages(
                 "Jede Nachricht muss ein Dictionary sein"
             )
 
-        if message.get("role") not in allowed_roles:
-            raise ValueError(
-                "Ungültige Nachrichtenrolle: "
-                f"{message.get('role')}"
-            )
-
+        role = message.get("role")
         content = message.get("content")
+
+        if role not in allowed_roles:
+            raise ValueError(
+                f"Ungültige Nachrichtenrolle: {role}"
+            )
 
         if not isinstance(content, str):
             raise ValueError(
@@ -142,33 +149,54 @@ def call_ollama_chat(
     max_tokens: int = 400,
     json_output: bool = False
 ) -> str:
+    """
+    Ruft den OpenAI-kompatiblen Chat-Completion-Endpunkt
+    des LiteLLM-Proxys auf.
+
+    Der Funktionsname bleibt aus Kompatibilitätsgründen bestehen.
+    """
+
     _validate_messages(messages)
 
     payload: Dict[str, Any] = {
         "model": model or OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "think": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens
-        }
+        "temperature": temperature,
+        "max_tokens": max_tokens
     }
 
     if json_output:
-        payload["format"] = "json"
+        payload["response_format"] = {
+            "type": "json_object"
+        }
 
     data = _post(
-        "/api/chat",
+        "/v1/chat/completions",
         payload
     )
 
-    message = data.get("message")
+    choices = data.get("choices")
+
+    if not isinstance(choices, list) or not choices:
+        raise OllamaClientError(
+            "In der LiteLLM-Antwort fehlt "
+            "das Feld choices"
+        )
+
+    first_choice = choices[0]
+
+    if not isinstance(first_choice, dict):
+        raise OllamaClientError(
+            "Der erste LiteLLM-Choice ist ungültig"
+        )
+
+    message = first_choice.get("message")
 
     if not isinstance(message, dict):
         raise OllamaClientError(
-            "In der Ollama-Antwort fehlt "
-            "das Objekt message"
+            "In der LiteLLM-Antwort fehlt "
+            "choices[0].message"
         )
 
     generated_text = message.get("content")
@@ -177,23 +205,13 @@ def call_ollama_chat(
         not isinstance(generated_text, str)
         or not generated_text.strip()
     ):
-        thinking = message.get(
-            "thinking",
-            data.get("thinking")
+        finish_reason = first_choice.get(
+            "finish_reason"
         )
 
-        if (
-            isinstance(thinking, str)
-            and thinking.strip()
-        ):
-            raise OllamaClientError(
-                "Das Modell lieferte nur Thinking-Inhalt "
-                "aber keine finale Antwort"
-            )
-
         raise OllamaClientError(
-            "Ollama lieferte eine leere Chat-Antwort "
-            f"vorhandene Felder={list(data.keys())}"
+            "LiteLLM lieferte eine leere Chat-Antwort "
+            f"finish_reason={finish_reason}"
         )
 
     return generated_text.strip()
@@ -206,43 +224,37 @@ def call_ollama_generate(
     max_tokens: int = 400,
     json_output: bool = False
 ) -> str:
-    payload: Dict[str, Any] = {
-        "model": model or OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens
+    """
+    Kompatibilitätsfunktion für bisherige Generate-Aufrufe.
+
+    Der einzelne Prompt wird intern als User-Nachricht
+    an /v1/chat/completions gesendet.
+    """
+
+    messages = [
+        {
+            "role": "user",
+            "content": prompt
         }
-    }
+    ]
 
-    if json_output:
-        payload["format"] = "json"
-
-    data = _post(
-        "/api/generate",
-        payload
+    return call_ollama_chat(
+        messages=messages,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        json_output=json_output
     )
-
-    generated_text = data.get("response")
-
-    if (
-        not isinstance(generated_text, str)
-        or not generated_text.strip()
-    ):
-        raise OllamaClientError(
-            "Ollama lieferte keine finale Textantwort "
-            f"vorhandene Felder={list(data.keys())}"
-        )
-
-    return generated_text.strip()
 
 
 def call_ollama(
     prompt: str,
     model: Optional[str] = None
 ) -> str:
+    """
+    Rückwärtskompatible Hilfsfunktion.
+    """
+
     return call_ollama_generate(
         prompt=prompt,
         model=model

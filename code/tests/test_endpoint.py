@@ -1,40 +1,30 @@
 import requests
 
-base_url = "https://f2ki-h100-1.f2.htw-berlin.de:11435"
 
-tests = [
-    (
-        "/api/chat",
+url = (
+    "https://f2ki-h100-1.f2.htw-berlin.de:"
+    "11435/v1/chat/completions"
+)
+
+payload = {
+    "model": "qwen3.6:27b",
+    "messages": [
         {
-            "model": "qwen3.6:27b",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Antworte nur mit Test"
-                }
-            ],
-            "stream": False
+            "role": "user",
+            "content": "Antworte nur mit dem Wort Test"
         }
-    ),
-    (
-        "/api/generate",
-        {
-            "model": "qwen3.6:27b",
-            "prompt": "Antworte nur mit Test",
-            "stream": False
-        }
-    )
-]
+    ],
+    "temperature": 0.0,
+    "max_tokens": 50,
+    "stream": False
+}
 
-for endpoint, payload in tests:
-    url = base_url + endpoint
+response = requests.post(
+    url,
+    json=payload,
+    timeout=180,
+    verify=True
+)
 
-    response = requests.post(
-        url,
-        json=payload,
-        timeout=180
-    )
-
-    print("\nURL:", url)
-    print("Status:", response.status_code)
-    print("Antwort:", response.text[:1000])
+print("Status:", response.status_code)
+print("Antwort:", response.text)
