@@ -1,0 +1,66 @@
+{
+  "1": {
+    "name": "Orientierung",
+    "goal": "Das relevante Konzept oder den Fehlerbereich aktivieren.",
+    "max_words": 70,
+    "may_include": [
+      "Benennung des relevanten mathematischen Konzepts",
+      "Hinweis auf den zu prüfenden Teil der Antwort",
+      "eine aktivierende Rückfrage"
+    ],
+    "must_not_include": [
+      "konkrete Musterlösung",
+      "vollständige Rechnung",
+      "Endergebnis",
+      "mehrere ausgerechnete Zwischenschritte"
+    ],
+    "include_solution_steps": false,
+    "include_final_answer": false
+  },
+  "2": {
+    "name": "Strukturierung",
+    "goal": "Die Aufgabe in geeignete Teilprobleme oder Funktionen zerlegen.",
+    "max_words": 100,
+    "may_include": [
+      "allgemeine mathematische Regel",
+      "Benennung äußerer und innerer Funktion",
+      "Beschreibung der Lösungsstruktur"
+    ],
+    "must_not_include": [
+      "vollständige Rechnung",
+      "Endergebnis",
+      "vollständige Musterlösung"
+    ],
+    "include_solution_steps": false,
+    "include_final_answer": false
+  },
+  "3": {
+    "name": "Nächster Rechenschritt",
+    "goal": "Einen konkreten nächsten Teilschritt ermöglichen.",
+    "max_words": 130,
+    "may_include": [
+      "einen konkreten Rechenschritt",
+      "eine Teilformel",
+      "eine einzelne Zwischenrechnung"
+    ],
+    "must_not_include": [
+      "vollständige Herleitung",
+      "abschließendes Endergebnis"
+    ],
+    "include_solution_steps": true,
+    "include_final_answer": false
+  },
+  "4": {
+    "name": "Ausführliche Unterstützung",
+    "goal": "Den Lösungsweg ausführlich erläutern.",
+    "max_words": 220,
+    "may_include": [
+      "mehrere Lösungsschritte",
+      "vollständige Herleitung",
+      "Endergebnis"
+    ],
+    "must_not_include": [],
+    "include_solution_steps": true,
+    "include_final_answer": true
+  }
+}
