@@ -1,0 +1,15 @@
+möglichst alles dem LLM übermitteln
+
+hilfestufe generisch gestalten
+
+informationen parametrisieren - möglichst wenig hilfestellungen/context übermitteln
+	- informationen an/auschalten
+	
+
+chat-funktion mit historie
+	(evtl über chat-hash/id)
+
+satz von bsp aufgaben+lösung
+	-	test-automatisierung implementierung
+	
+	
