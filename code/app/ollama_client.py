@@ -5,6 +5,7 @@ from requests import Response
 from requests.adapters import HTTPAdapter
 
 from app.config import (
+    OLLAMA_API_KEY,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
     OLLAMA_TIMEOUT
@@ -64,10 +65,19 @@ def _post(
     print(f"LiteLLM POST URL: {url}")
     print(f"LiteLLM Modell: {payload.get('model')}")
 
+    headers: Dict[str, str] = {}
+
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = (
+            f"Bearer {OLLAMA_API_KEY}"
+        )
+        headers["Content-Type"] = "application/json"
+
     try:
         response = SESSION.post(
             url,
             json=payload,
+            headers=headers,
             timeout=OLLAMA_TIMEOUT,
             verify=True
         )

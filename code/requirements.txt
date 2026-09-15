@@ -3,5 +3,6 @@ uvicorn[standard]
 jinja2
 jsonschema
 requests
+python-dotenv
 
 pip install -r requirements.txt

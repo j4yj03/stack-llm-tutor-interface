@@ -5,6 +5,12 @@ from typing import Set
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 TASK_DIR = BASE_DIR / "tasks"
 SCHEMA_PATH = (
     BASE_DIR
@@ -38,6 +44,8 @@ OLLAMA_MODEL = os.getenv(
 OLLAMA_TIMEOUT = int(
     os.getenv("OLLAMA_TIMEOUT", "180")
 )
+
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 
 MAX_STUDENT_ANSWER_LENGTH = int(
     os.getenv("MAX_STUDENT_ANSWER_LENGTH", "2000")
