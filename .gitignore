@@ -1,10 +1,15 @@
 *.pyc
-code/.ipynb_checkpoints/*
-code/app/__pycache__/*
+__pycache__/
+.pytest_cache/
 
-code/app/__pycache__/__init__.cpython-39.pyc
-code/app/__pycache__/main.cpython-39.pyc
-code/app/__pycache__/ollama_client.cpython-39.pyc
-code/app/__pycache__/prompt_builder.cpython-39.pyc
-code/app/__pycache__/task_loader.cpython-39.pyc
-code/app/__pycache__/ollama_client.cpython-39.pyc
+# Lokale Konfiguration mit potenziellen API-Keys
+code/.env
+.env
+
+# E-Mail-Exporte mit Zugangsdaten
+email.txt
+
+# Datenbanken
+*.db
+
+code/.ipynb_checkpoints/*

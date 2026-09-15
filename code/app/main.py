@@ -14,16 +14,17 @@ from fastapi.templating import Jinja2Templates
 from app.chat_store import ChatStore
 from app.config import (
     ALLOWED_MODELS,
+    LLM_MODEL,
     MAX_HISTORY_MESSAGES,
     MAX_STUDENT_ANSWER_LENGTH,
-    OLLAMA_MODEL,
     TEMPLATE_DIR
 )
 from app.database import initialize_database
 from app.hint_policy import HintPolicy
-from app.ollama_client import (
-    OllamaClientError,
-    call_ollama_chat
+from app.llm import (
+    LLMError,
+    LLMRateLimitError,
+    create_llm_client
 )
 from app.prompt_builder import PromptBuilder
 from app.schemas import (
@@ -80,7 +81,7 @@ def select_model(
 ) -> str:
     selected_model = (
         requested_model
-        or OLLAMA_MODEL
+        or LLM_MODEL
     )
 
     if selected_model not in ALLOWED_MODELS:
@@ -178,13 +179,22 @@ def generate_hint(
     )
 
     try:
-        return call_ollama_chat(
+        return create_llm_client().chat(
             messages=messages,
             model=selected_model,
             temperature=0.2,
             max_tokens=400
         )
-    except OllamaClientError as exc:
+    except LLMRateLimitError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Rate-Limit des LLM-Dienstes erreicht. "
+                "Bitte kurze Zeit warten. "
+                f"Ursache: {exc}"
+            )
+        ) from exc
+    except LLMError as exc:
         raise HTTPException(
             status_code=502,
             detail=(
@@ -199,7 +209,7 @@ def health():
     return {
         "status": "ok",
         "tasks_loaded": len(TASKS),
-        "default_model": OLLAMA_MODEL
+        "default_model": LLM_MODEL
     }
 
 

@@ -74,6 +74,13 @@ stack-llm-tutor-interface/
 │   ├── hint_policy.py
 │   ├── prompt_builder.py
 │   ├── task_loader.py
+│   ├── llm/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── _http.py
+│   │   ├── saia.py
+│   │   ├── ollama.py
+│   │   └── factory.py
 │   ├── ollama_client.py
 │   └── templates/
 │       └── tutor_page.html
@@ -178,9 +185,12 @@ DATABASE_PATH
 Current model settings include:
 
 ```text
-OLLAMA_BASE_URL
-OLLAMA_MODEL
-OLLAMA_TIMEOUT
+LLM_API_MODE
+LLM_BASE_URL
+LLM_API_KEY
+LLM_MODEL
+LLM_TIMEOUT
+LLM_DISABLE_THINKING
 ALLOWED_MODELS
 ```
 
@@ -199,10 +209,12 @@ Prefer environment variables for deployment-specific configuration.
 The currently selected default model is:
 
 ```text
-qwen3.6:27b
+qwen3.8-27b
 ```
 
-The supplied model inventory describes it as a 27.8B Q4_K_M model with a context length of 262144 and support for completion, tools, thinking, and vision [1].
+It is served by the GWDG SAIA platform. The model inventory was
+verified on 2026-09-15 via `GET /v1/models`; model names change,
+so re-verify before switching defaults [1].
 
 ---
 
@@ -481,111 +493,31 @@ UUIDs identify sessions but do not provide authentication or authorization.
 
 ---
 
-### `app/ollama_client.py`
+### `app/llm/`
 
-This module currently implements a native Ollama client [7].
-
-Supported functions:
-
-```text
-call_ollama_chat
-call_ollama_generate
-call_ollama
-```
-
-Native endpoints:
-
-```text
-POST /api/chat
-POST /api/generate
-```
-
-Native chat payload:
-
-```json
-{
-  "model": "qwen3.6:27b",
-  "messages": [],
-  "stream": false,
-  "think": false,
-  "options": {
-    "temperature": 0.2,
-    "num_predict": 400
-  }
-}
-```
-
-The client handles:
-
-- TLS verification
-- connection failures
-- timeouts
-- HTTP errors
-- invalid JSON
-- missing response fields
-- empty output
-- thinking-only output
-
-Do not set `verify=False`.
-
----
-
-## LLM Infrastructure Issue
-
-The documented HTW service address is:
-
-```text
-https://f2ki-h100-1.f2.htw-berlin.de:11435
-```
-
-The provided HTW wrapper expects a tokenless native Ollama API and calls:
-
-```text
-GET  /api/tags
-POST /api/chat
-POST /api/generate
-```
-
-It also uses native Ollama fields such as `think`, `keep_alive`, `options.temperature`, and `options.num_predict` [11].
-
-Observed behavior:
-
-| Request | Status | Result |
-|---|---:|---|
-| `GET /api/tags` | 404 | `{"detail":"Not Found"}` |
-| `POST /api/chat` | 404 | `{"detail":"Not Found"}` |
-| `POST /v1/chat/completions` | 401 | API key missing |
-
-The base URL currently exposes LiteLLM Swagger documentation rather than a native Ollama root.
-
-Interpretation:
-
-- VPN and HTTPS connectivity work
-- the tested native Ollama routes are not registered
-- the LiteLLM route exists
-- the LiteLLM route requires authentication
-- this is an infrastructure or API-contract issue rather than a prompt-builder issue
-
-Do not work around this by inventing a token.
-
-Until the service owner clarifies the interface, use local Ollama for development or implement a configurable LiteLLM adapter once a valid key is available.
-
----
-
-## Planned Backend Abstraction
-
-The LLM layer should be refactored toward:
+Backend-Abstraktion für alle LLM-Zugriffe:
 
 ```text
 app/llm/
-├── __init__.py
-├── base.py
-├── ollama.py
-├── litellm.py
-└── factory.py
+├── __init__.py   # Exporte: LLMClient, Fehlerklassen, create_llm_client
+├── base.py       # abstraktes Interface + Fehlhierarchie + Nachrichtenvalidierung
+├── _http.py      # gemeinsames requests-POST mit Fehlerzuordnung
+├── saia.py       # OpenAI-kompatibler Client für GWDG SAIA
+├── ollama.py     # nativer Ollama-Client (/api/chat) als Dev-Fallback
+└── factory.py    # Backend-Wahl nach LLM_API_MODE
 ```
 
-Target interface:
+Fehlhierarchie:
+
+```text
+LLMError
+├── LLMConnectionError   # Netzwerk, TLS, Timeout, allgemeine HTTP-Fehler
+├── LLMAuthError         # kein Key gesetzt, HTTP 401/403
+├── LLMRateLimitError    # HTTP 429, liest Retry-After
+└── LLMResponseError     # leere/ungültige Antwort, ungültiges JSON
+```
+
+Interface:
 
 ```python
 from typing import Dict, List, Optional
@@ -597,48 +529,20 @@ class LLMClient:
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
         temperature: float = 0.2,
-        max_tokens: int = 400
+        max_tokens: int = 400,
+        json_output: bool = False
     ) -> str:
         raise NotImplementedError
 ```
 
-Backends:
+### `app/ollama_client.py`
 
-```text
-OllamaClient
-    → POST /api/chat
-    → response: message.content
+Kompatibilitäts-Wrapper. `call_ollama_chat`, `call_ollama_generate`,
+`call_ollama` und der Fehlername `OllamaClientError` bleiben erhalten,
+delegieren aber an die Backend-Fabrik. Neue Module sollen
+`app.llm` direkt verwenden.
 
-LiteLLMClient
-    → POST /v1/chat/completions
-    → Authorization: Bearer API_KEY
-    → response: choices[0].message.content
-```
-
-Configuration should eventually use neutral names:
-
-```dotenv
-LLM_API_MODE=ollama
-LLM_BASE_URL=http://127.0.0.1:11434
-LLM_MODEL=qwen3:8b
-LLM_TIMEOUT=180
-```
-
-or:
-
-```dotenv
-LLM_API_MODE=litellm
-LLM_BASE_URL=https://f2ki-h100-1.f2.htw-berlin.de:11435
-LLM_API_KEY=...
-LLM_MODEL=qwen3.6:27b
-LLM_TIMEOUT=180
-```
-
-Never commit `LLM_API_KEY`.
-
----
-
-## Main Request Flows
+### `app/config.py`
 
 ### New Moodle tutor request
 
@@ -1010,7 +914,9 @@ generated hint
 timestamp
 ```
 
-The supplied inventory identifies `qwen3.6:27b` with digest `a50eda8ed977ab48a12431878896b27ffd5cef552c17af3317d9623b939a7f1e` [1].
+The GWDG SAIA platform is the production backend;
+there is no per-model digest, but model aliases are
+verifiable via `GET /v1/models`.
 
 Avoid persisting personal student data for reproducibility.
 
@@ -1018,33 +924,26 @@ Avoid persisting personal student data for reproducibility.
 
 ## Known Issues
 
-1. The HTW documentation and current server behavior are inconsistent
-2. Native Ollama routes return HTTP 404
-3. The visible LiteLLM route requires an API key
-4. No LiteLLM key is currently available
-5. The current client is coupled to native Ollama
-6. The web template may not yet expose the full chat workflow
-7. STACK `/render`, `/validate`, and `/grade` integration is not yet implemented
-8. Automated tests are incomplete
-9. Output-level solution-disclosure detection is incomplete
-10. SQLite is sufficient for the prototype but not intended for high-concurrency production deployment
+1. The native HTW Ollama API was shut down on 2026-09-01; the GWDG SAIA platform is the replacement
+2. SAIA enforces a rate limit of roughly 100 requests per hour
+3. SAIA API keys expire after 6 months and must be rotated via the SAIA dashboard
+4. The web template may not yet expose the full chat workflow
+5. STACK `/render`, `/validate`, and `/grade` integration is not yet implemented
+6. Output-level solution-disclosure detection is incomplete
+7. SQLite is sufficient for the prototype but not intended for high-concurrency production deployment
+8. `chat_template_kwargs.enable_thinking` is a vLLM-specific extension; if the gateway rejects it, set `LLM_DISABLE_THINKING=0`
 
 ---
 
 ## Prioritized Work Plan
 
-1. Clarify the HTW LLM endpoint and authentication method
-2. Keep local Ollama available as a development fallback
-3. Refactor the LLM client into backend adapters
-4. Add unit tests for hint levels and context options
-5. Add chat-store tests
-6. Add mocked FastAPI endpoint tests
-7. Extend the tutor page with chat input and visible history
-8. Integrate STACK API rendering, validation, and grading
-9. Build a reproducible set of tasks and typical incorrect answers
-10. Add evaluation logging
-11. Implement output checks for solution disclosure
-12. Add external integration tests only after credentials or a valid native endpoint are available
+1. Keep local Ollama available as a development fallback
+2. Extend the tutor page with chat input and visible history
+3. Integrate STACK API rendering, validation, and grading
+4. Build a reproducible set of tasks and typical incorrect answers
+5. Add evaluation logging
+6. Implement output checks for solution disclosure
+7. Watch the SAIA rate limit during batch evaluations (roughly 100 calls per hour)
 
 ---
 
@@ -1090,10 +989,14 @@ ollama pull qwen3:8b
 Example local configuration:
 
 ```cmd
-set OLLAMA_BASE_URL=http://127.0.0.1:11434
-set OLLAMA_MODEL=qwen3:8b
+set LLM_API_MODE=ollama
+set LLM_BASE_URL=http://127.0.0.1:11434
+set LLM_MODEL=qwen3:8b
 python -m uvicorn app.main:app --reload --port 8000
 ```
+
+SAIA configuration is read from `code/.env`
+(see `code/.env.example`); never commit the key.
 
 ---
 

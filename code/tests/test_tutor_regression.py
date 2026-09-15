@@ -1,5 +1,6 @@
 import pytest
 
+from app import config
 from app.ollama_client import call_ollama_chat
 from app.prompt_builder import PromptBuilder
 from app.hint_policy import HintPolicy
@@ -9,7 +10,18 @@ from app.schemas import (
 )
 
 
+requires_api_key = pytest.mark.skipif(
+    config.LLM_API_MODE not in ("ollama",)
+    and not config.LLM_API_KEY,
+    reason=(
+        "Kein API-Key gesetzt (LLM_API_KEY) - "
+        "Integrationstest übersprungen"
+    )
+)
+
+
 @pytest.mark.integration
+@requires_api_key
 def test_level_one_does_not_reveal_final_answer():
     stack = StackContext(
         question_id="chain_rule_001",
@@ -46,9 +58,9 @@ def test_level_one_does_not_reveal_final_answer():
 
     answer = call_ollama_chat(
         messages=messages,
-        model="qwen3.6:27b",
+        model=config.LLM_MODEL,
         temperature=0.0,
-        max_tokens=150
+        max_tokens=400
     )
 
     forbidden_fragments = [

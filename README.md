@@ -14,8 +14,8 @@ Prototyp eines selbst-gehosteten LLM-Tutor-Interfaces für digitale Mathematikau
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│   Moodle    │───▶│  FastAPI     │───▶│  Ollama/    │
-│   STACK     │    │  Backend     │    │  LiteLLM    │
+│   Moodle    │───▶│  FastAPI     │───▶│  GWDG SAIA/ │
+│   STACK     │    │  Backend     │    │  Ollama     │
 └─────────────┘    └──────────────┘    └─────────────┘
                           │
                           ▼
@@ -28,14 +28,16 @@ Prototyp eines selbst-gehosteten LLM-Tutor-Interfaces für digitale Mathematikau
 **Technologien:**
 - Python 3.9+, FastAPI, Uvicorn
 - Jinja2 (Templating), Pydantic (Validierung)
-- Ollama/LiteLLM (LLM-Backend)
+- SAIA (GWDG, OpenAI-kompatibel) oder nativer Ollama-Server (LLM-Backend, austauschbar)
 - SQLite (Datenbank)
 - JSON Schema Draft 2020-12 (Aufgaben-Validierung)
 
 ## Voraussetzungen
 
 - Python 3.9+
-- Zugang zu einem Ollama/LiteLLM-Endpoint (z.B. HTW Berlin KI-Werkstatt)
+- LLM-Zugang:
+  - **GWDG SAIA** (Standard): API-Key über https://saia.gwdg.de/dashboard anfordern
+  - **Lokaler Ollama-Server** als Entwicklungsfallback
 
 ## Installation
 
@@ -46,15 +48,29 @@ pip install -r requirements.txt
 
 ## Umgebungskonfiguration
 
-Erstelle eine `.env`-Datei oder setze Umgebungsvariablen:
+Kopiere `.env.example` zu `.env` (wird nicht committet) und setze den API-Key:
 
 ```bash
-OLLAMA_BASE_URL=https://f2ki-h100-1.f2.htw-berlin.de:11435
-OLLAMA_MODEL=qwen3.6:27b
-OLLAMA_TIMEOUT=180
+cp .env.example .env
+```
+
+```env
+LLM_API_MODE=saia
+LLM_BASE_URL=https://chat-ai.academiccloud.de/v1
+LLM_API_KEY=<eigener SAIA-Key>
+LLM_MODEL=qwen3.8-27b
+LLM_TIMEOUT=180
 DATABASE_PATH=data/tutor.db
 MAX_HISTORY_MESSAGES=12
 ```
+
+Wichtige Hinweise:
+
+- Der API-Key darf **niemals** committet werden (`.env` ist via `.gitignore` ausgeschlossen)
+- Rate-Limit von SAIA: maximal ~100 Aufrufe pro Stunde beachten
+- `LLM_DISABLE_THINKING=1` (Standard) unterdrückt das Reasoning der Modelle und spart Token-Budget
+- Lokaler Ollama-Fallback: `LLM_API_MODE=ollama` und `LLM_BASE_URL=http://127.0.0.1:11434`
+- Aktuelle Modellliste: `GET https://chat-ai.academiccloud.de/v1/models` (mit Bearer-Key)
 
 ## Starten
 
@@ -77,10 +93,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## Testen
 
 ```bash
-# Nur Unit-Tests
-pytest
+# Nur Unit-Tests (ohne LLM-Zugang)
+pytest -m "not integration"
 
-# Mit Integrationstests (benötigt live LLM)
+# Mit Integrationstests (benötigt API-Key in .env)
 pytest -m integration
 ```
 

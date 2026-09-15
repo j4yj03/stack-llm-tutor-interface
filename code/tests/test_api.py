@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+from app.llm import (
+    LLMError,
+    LLMRateLimitError
+)
 
 
 def test_health():
@@ -11,27 +15,28 @@ def test_health():
     assert response.json()["status"] == "ok"
 
 
-def test_start_tutor_with_mocked_llm(
-    monkeypatch,
-    tmp_path
-):
-    def fake_call_ollama_chat(
+class FakeLLMClient:
+    def __init__(self, answer="Welche Funktion steht im Exponenten?"):
+        self.answer = answer
+
+    def chat(
+        self,
         messages,
         model=None,
         temperature=0.2,
-        max_tokens=400
+        max_tokens=400,
+        json_output=False
     ):
-        return "Welche Funktion steht im Exponenten?"
+        if isinstance(self.answer, Exception):
+            raise self.answer
 
-    monkeypatch.setattr(
-        main_module,
-        "call_ollama_chat",
-        fake_call_ollama_chat
-    )
+        return self.answer
 
-    response = TestClient(main_module.app).post(
-        "/api/tutor/start",
-        json={
+
+class StartPayload:
+    @staticmethod
+    def body():
+        return {
             "stack": {
                 "question_id": "chain_rule_001",
                 "question_text": (
@@ -42,6 +47,22 @@ def test_start_tutor_with_mocked_llm(
             },
             "hint_level": 1
         }
+
+
+def test_start_tutor_with_mocked_llm(
+    monkeypatch
+):
+    monkeypatch.setattr(
+        main_module,
+        "create_llm_client",
+        lambda: FakeLLMClient()
+    )
+
+    response = TestClient(
+        main_module.app
+    ).post(
+        "/api/tutor/start",
+        json=StartPayload.body()
     )
 
     assert response.status_code == 200
@@ -53,3 +74,50 @@ def test_start_tutor_with_mocked_llm(
         "Welche Funktion steht im Exponenten?"
     )
     assert data["chat_id"]
+
+
+def test_rate_limit_returns_429(
+    monkeypatch
+):
+    monkeypatch.setattr(
+        main_module,
+        "create_llm_client",
+        lambda: FakeLLMClient(
+            answer=LLMRateLimitError(
+                "Retry-After=36"
+            )
+        )
+    )
+
+    response = TestClient(
+        main_module.app
+    ).post(
+        "/api/tutor/start",
+        json=StartPayload.body()
+    )
+
+    assert response.status_code == 429
+    assert "Rate-Limit" in response.json()[
+        "detail"
+    ]
+
+
+def test_llm_error_returns_502(
+    monkeypatch
+):
+    monkeypatch.setattr(
+        main_module,
+        "create_llm_client",
+        lambda: FakeLLMClient(
+            answer=LLMError("Verbindung fehlgeschlagen")
+        )
+    )
+
+    response = TestClient(
+        main_module.app
+    ).post(
+        "/api/tutor/start",
+        json=StartPayload.body()
+    )
+
+    assert response.status_code == 502

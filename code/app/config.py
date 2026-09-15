@@ -31,21 +31,70 @@ DATABASE_PATH = Path(
     )
 )
 
-OLLAMA_BASE_URL = os.getenv(
-    "OLLAMA_BASE_URL",
-    "https://f2ki-h100-1.f2.htw-berlin.de:11435"
+# Neutrale LLM-Konfiguration (siehe AGENTS.md):
+#   LLM_API_MODE: saia | ollama
+#   LLM_BASE_URL: Basis-URL inkl. ggf. /v1
+#   LLM_API_KEY:  nur lokal in code/.env setzen
+LLM_API_MODE = os.getenv(
+    "LLM_API_MODE",
+    "saia"
+).strip().lower()
+
+LLM_BASE_URL = os.getenv(
+    "LLM_BASE_URL",
+    "https://chat-ai.academiccloud.de/v1"
 ).rstrip("/")
 
-OLLAMA_MODEL = os.getenv(
-    "OLLAMA_MODEL",
-    "qwen3.6:27b"
+LLM_API_KEY = os.getenv(
+    "LLM_API_KEY",
+    ""
+).strip()
+
+LLM_MODEL = os.getenv(
+    "LLM_MODEL",
+    "qwen3.8-27b"
 )
 
-OLLAMA_TIMEOUT = int(
-    os.getenv("OLLAMA_TIMEOUT", "180")
+LLM_TIMEOUT = int(
+    os.getenv("LLM_TIMEOUT", "180")
 )
 
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
+# Reasoning/Thinking der Modelle unterdrücken
+# (didaktische Hints, keine Token-Verschwendung).
+# 1/true = aus (Standard), 0/false = zulassen.
+LLM_DISABLE_THINKING = os.getenv(
+    "LLM_DISABLE_THINKING",
+    "1"
+).strip().lower() in ("1", "true", "yes")
+
+# Verifiziert am 15.09.2026 via GET /v1/models
+DEFAULT_ALLOWED_MODELS: Set[str] = {
+    "qwen3.8-27b",
+    "qwen3.6-35b-a3b",
+    "qwen3.5-122b-a10b",
+    "gemma-4-31b-it",
+    "openai-gpt-oss-120b",
+    "mistral-medium-3.5-128b",
+    "glm-4.7",
+    "meta-llama-3.1-8b-instruct"
+}
+
+ALLOWED_MODELS: Set[str] = {
+    model.strip()
+    for model in os.getenv(
+        "LLM_ALLOWED_MODELS",
+        ""
+    ).split(",")
+    if model.strip()
+}
+
+if not ALLOWED_MODELS:
+    ALLOWED_MODELS = set(
+        DEFAULT_ALLOWED_MODELS
+    )
+
+# Das Default-Modell bleibt immer auswählbar.
+ALLOWED_MODELS.add(LLM_MODEL)
 
 MAX_STUDENT_ANSWER_LENGTH = int(
     os.getenv("MAX_STUDENT_ANSWER_LENGTH", "2000")
@@ -56,10 +105,3 @@ MAX_HISTORY_MESSAGES = int(
 )
 
 MAX_HINT_LEVEL = 4
-
-ALLOWED_MODELS: Set[str] = {
-    "qwen3.6:27b",
-    "qwen3.8:27b",
-    "granite4.1:30b",
-    "mistral-medium-3.5:128b"
-}
