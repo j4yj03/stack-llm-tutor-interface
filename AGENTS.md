@@ -192,7 +192,8 @@ re-stores the user question, targets the attempted hint level (form field,
 never below the stored level), and on success stores just the new assistant
 response. The failed page renders the retry inline next to the unanswered
 user question, or in the error box when no chat question exists (typical
-`/start` failures).
+`/start` failures). While a retry is available, the chat form's send button
+is disabled.
 
 `generate_hint` returns `(answer, messages)`; display the actual messages passed
 to the client, never rebuild a debug prompt after saving the new response.
@@ -238,7 +239,17 @@ MAX_CONTEXT_QUESTION_TEXT
 MAX_CHAT_MESSAGE_LENGTH
 MAX_HISTORY_MESSAGES
 MAX_HINT_LEVEL
+DEBUG_MODE
+CONTEXT_OPTIONS
 ```
+
+`CONTEXT_OPTIONS` (comma-separated) selects the active context options of
+the tutor flows and the JSON defaults of `ContextOptions` (unknown names
+prevent startup). `DEBUG_MODE=1` keeps the prompt/options debugger and the
+STACK diagnosis box on the tutor page; `DEBUG_MODE=0` hides both from
+students while the LLM context is unchanged. While a chat question is
+unanswered, the send button of the chat form is disabled and only the
+inline retry remains available.
 
 Do not duplicate these settings in other modules.
 

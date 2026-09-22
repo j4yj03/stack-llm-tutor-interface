@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Set
+from typing import Dict, Set
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -101,6 +101,69 @@ if not ALLOWED_MODELS:
 
 # Das Default-Modell bleibt immer auswählbar.
 ALLOWED_MODELS.add(LLM_MODEL)
+
+
+# Aktive Kontextoptionen der Tutor-Flows (Kommagetrennt in CONTEXT_OPTIONS).
+# Gültig sind die ContextOptions-Felder, mit oder ohne Präfix "include_".
+# Unbekannte Namen verhindern bewusst den Serverstart (Fail-fast).
+_VALID_CONTEXT_OPTIONS = frozenset({
+    "question_text",
+    "student_answer",
+    "diagnosis_code",
+    "prt_feedback",
+    "score",
+    "learning_goals",
+    "math_rules",
+    "solution_steps",
+    "final_answer",
+    "chat_history",
+})
+
+_DEFAULT_CONTEXT_OPTIONS = (
+    "question_text,student_answer,diagnosis_code,prt_feedback,"
+    "learning_goals,solution_steps,final_answer,chat_history"
+)
+
+
+def _parse_context_options(raw: str) -> Dict[str, bool]:
+    enabled: Dict[str, bool] = {
+        name: False
+        for name in _VALID_CONTEXT_OPTIONS
+    }
+
+    for name in raw.split(","):
+        name = name.strip().lower().replace("-", "_")
+
+        if not name:
+            continue
+
+        if name.startswith("include_"):
+            name = name[len("include_"):]
+
+        if name not in _VALID_CONTEXT_OPTIONS:
+            raise RuntimeError(
+                f"Unbekannte Kontextoption in CONTEXT_OPTIONS: "
+                f"'{name}'. Gültige Werte: "
+                f"{sorted(_VALID_CONTEXT_OPTIONS)}"
+            )
+
+        enabled[name] = True
+
+    return enabled
+
+
+CONTEXT_OPTIONS_ENABLED: Dict[str, bool] = _parse_context_options(
+    os.getenv("CONTEXT_OPTIONS", _DEFAULT_CONTEXT_OPTIONS)
+)
+
+
+# Debug-Ansicht der Tutor-Seite: 1 = Debug-Details (Hilfestufen-Dropdown,
+# STACK-Diagnose, Prompt-/Options-Debugger) sichtbar (Entwicklung),
+# 0 = für Studierende ausgeblendet.
+DEBUG_MODE = os.getenv(
+    "DEBUG_MODE",
+    "1"
+).strip().lower() in ("1", "true", "yes")
 
 MAX_STUDENT_ANSWER_LENGTH = int(
     os.getenv("MAX_STUDENT_ANSWER_LENGTH", "2000")

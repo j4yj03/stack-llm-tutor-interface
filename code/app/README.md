@@ -20,7 +20,7 @@ Moodle/STACK → GET /start → main.py
 | Datei | Verantwortung |
 |---|---|
 | `main.py` | FastAPI-Entrypoint; alle REST-Endpunkte; Validierung von `qid`, `diagnosis`, `ans1`, Modell-Allowlist; Fehlermapping LLM→HTTP (429/502) |
-| `config.py` | Zentrale Konfiguration: Pfade, `LLM_*`-Umgebungsvariablen, `ALLOWED_MODELS`, Limits für Antworten, Aufgabentext, Chatnachrichten, Verlauf und Hilfestufen |
+| `config.py` | Zentrale Konfiguration: Pfade, `LLM_*`-Umgebungsvariablen, `ALLOWED_MODELS`, Limits, `CONTEXT_OPTIONS` (Kontextoptionen der Tutor-Flows inkl. JSON-Defaults) und `DEBUG_MODE` (Debug-Anzeige der Tutor-Seite) |
 | `schemas.py` | Pydantic-Modelle: `ContextOptions`, `StackContext`, `TutorRequest`, `NextHintRequest`, `UserChatRequest`, `ChatMessage`, `TutorResponse`, `ChatHistoryResponse` |
 | `database.py` | `initialize_database()`, `get_connection()`; SQLite mit Foreign Keys (`ON DELETE CASCADE`) |
 | `chat_store.py` | CRUD für Chats/Nachrichten; UUID-Validierung; `next_hint_level` stoppt bei `MAX_HINT_LEVEL` |
@@ -88,9 +88,11 @@ die Zielstufe — nie niedriger als die gespeicherte Stufe, sonst HTTP 400;
 ein fehlgeschlagener Stufenaufstieg wird also auf der Versuchsstufe
 wiederholt. Das Formular erscheint inline **neben der unbeantworteten
 Frage** in der Chatblase; existiert keine Chatfrage (typischer
-`/start`-Fehler), steht es in der Fehlerbox. Jeder Retry verbraucht einen
-LLM-Aufruf, ein Doppelklick erzeugt entsprechend mehrere Antworten;
-Idempotenz-Token gibt es bewusst nicht.
+`/start`-Fehler), steht es in der Fehlerbox. Solange eine Frage unbeantwortet
+ist (Retry inline), ist der Senden-Knopf des Chat-Formulars deaktiviert —
+der Server akzeptiert Nachrichten weiterhin, die Sperre ist clientseitig.
+Jeder Retry verbraucht einen LLM-Aufruf, ein Doppelklick erzeugt
+entsprechend mehrere Antworten; Idempotenz-Token gibt es bewusst nicht.
 
 `POST /tutor/{chat_id}/message` nimmt `message` und optional `model` als
 `application/x-www-form-urlencoded` entgegen (`python-multipart` erforderlich).
@@ -135,15 +137,23 @@ unverändert. Beispiel: `[{"role": "system", "content": "..."},
 {"role": "user", "content": "..."}]`. Keine API-Keys oder Header darin aufnehmen.
 Debug-Prompts sind Entwicklungsdaten, kein dauerhaftes Request-Logging.
 
-Der HTML-Debug-Block zeigt dieselben Daten: die verwendeten ContextOptions als
-JSON (`debug-context-options`) und den Prompt (`debug-prompt`). Bei fehlender
-Generierung (z. B. abgewiesene Nachricht) bleiben beide leer.
+Der HTML-Debug-Block (einklappbares `<details>` „Debug-Informationen“) zeigt
+dieselben Daten: die verwendeten ContextOptions als JSON
+(`debug-context-options`) und den Prompt (`debug-prompt`); er enthält
+außerdem das Hilfestufen-Dropdown für den nächsten Hinweis und die
+STACK-Diagnose. Bei fehlender Generierung (z. B. abgewiesene Nachricht)
+bleiben Prompt und Options leer. Der gesamte Debug-Bereich erscheint nur bei
+`DEBUG_MODE=1` (Standard); bei `DEBUG_MODE=0` verlässt der Prompt den Server
+für die HTML-Anzeige nicht, der LLM-Kontext selbst bleibt unverändert. Die
+Debug-Felder der JSON-API (`prompt_messages`, `context_options`) sind
+Entwickleroberfläche und folgen nicht dem DEBUG_MODE.
 
 ## Sicherheitsregeln
 
 - Studierendenantworten sind **nicht vertrauenswürdig**: Längenlimit, Isolation in `<student_answer>`-Tags, keine Interpolation in System-Nachrichten.
 - Nur Modelle aus `ALLOWED_MODELS` sind über Request-Parameter wählbar.
 - Das LLM darf STACK-Score, PRT-Diagnose und Bewertungsinstanz nicht überschreiben.
+- Die Hilfestufe ist intern: Die Tutor-Seite zeigt sie Studierenden nicht an (nur Debug-Bereich), und der System-Prompt verbietet dem LLM, Stufe oder Stufennummern im Hinweis zu nennen.
 - API-Keys nur über `.env`/Umgebung; niemals loggen oder committen.
 - Aufgabenstellung und Rückfragen stehen ausschließlich im User-Kontext, nie in der Systemrolle. Jinja2 escaped auch Debug-Prompts und Chatbeiträge.
 - Die Lösungsschutz-Doppelprüfung bleibt aktiv; zusätzlich begrenzt die zentrale Policy die Lösungsschritte auf Stufe 3. Details und Grenzen in `../config/README.md`.

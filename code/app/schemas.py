@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from app.config import (
+    CONTEXT_OPTIONS_ENABLED,
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_CONTEXT_QUESTION_TEXT,
     MAX_HINT_LEVEL,
@@ -12,16 +13,35 @@ from app.config import (
 
 
 class ContextOptions(BaseModel):
-    include_question_text: bool = True
-    include_student_answer: bool = True
-    include_diagnosis_code: bool = True
-    include_prt_feedback: bool = True
-    include_score: bool = False
-    include_learning_goals: bool = False
-    include_math_rules: bool = False
-    include_solution_steps: bool = False
-    include_final_answer: bool = False
-    include_chat_history: bool = True
+    # Defaultwerte aus CONTEXT_OPTIONS in der .env (Keys ohne "include_").
+    include_question_text: bool = CONTEXT_OPTIONS_ENABLED[
+        "question_text"
+    ]
+    include_student_answer: bool = CONTEXT_OPTIONS_ENABLED[
+        "student_answer"
+    ]
+    include_diagnosis_code: bool = CONTEXT_OPTIONS_ENABLED[
+        "diagnosis_code"
+    ]
+    include_prt_feedback: bool = CONTEXT_OPTIONS_ENABLED[
+        "prt_feedback"
+    ]
+    include_score: bool = CONTEXT_OPTIONS_ENABLED["score"]
+    include_learning_goals: bool = CONTEXT_OPTIONS_ENABLED[
+        "learning_goals"
+    ]
+    include_math_rules: bool = CONTEXT_OPTIONS_ENABLED[
+        "math_rules"
+    ]
+    include_solution_steps: bool = CONTEXT_OPTIONS_ENABLED[
+        "solution_steps"
+    ]
+    include_final_answer: bool = CONTEXT_OPTIONS_ENABLED[
+        "final_answer"
+    ]
+    include_chat_history: bool = CONTEXT_OPTIONS_ENABLED[
+        "chat_history"
+    ]
 
 
 class StackContext(BaseModel):

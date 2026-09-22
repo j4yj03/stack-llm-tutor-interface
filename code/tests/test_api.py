@@ -262,6 +262,9 @@ def test_start_renders_actual_prompt_and_script_free_forms(client, llm, start_pa
     assert '<pre id="debug-context-options">' in response.text
     assert "Aufgabenvariante" not in response.text
     assert "is_moodle_variant" not in response.context
+    assert response.context["chat_messages"] == list(
+        reversed(response.context["history"])
+    )
 
 
 def test_moodle_context_survives_html_chat_and_next_hint(client, llm, start_params):
@@ -291,6 +294,13 @@ def test_moodle_context_survives_html_chat_and_next_hint(client, llm, start_para
     assert reply.context["context_options"] == (
         initial.context["context_options"]
     )
+    # Chat-Panel: neueste Beiträge zuerst (CSS-Anker am neuesten Beitrag).
+    chat_messages = reply.context["chat_messages"]
+    assert chat_messages[0]["content"] == llm.answer
+    assert chat_messages[-1]["content"] == "Welche Funktion steht im Exponenten?"
+    assert reply.text.index(llm.answer) < reply.text.index(
+        "Welche Funktion steht im Exponenten?"
+    )
     assert fields["message"] in reply.text
     assert json.loads(reply.context["prompt"]) == llm.calls[-1]["messages"]
     assert {"role": "user", "content": fields["message"]} in llm.calls[-1]["messages"]
@@ -300,7 +310,7 @@ def test_moodle_context_survives_html_chat_and_next_hint(client, llm, start_para
 
     action, fields = read_form(reply, "next-hint-form")
     assert fields["chat_id"] == chat_id
-    assert fields["hint_level"] == "2"
+    fields["hint_level"] = "2"
     next_page = client.get(action, params=fields)
     assert next_page.status_code == 200
     assert next_page.context["chat_id"] == chat_id
@@ -529,6 +539,7 @@ def test_html_llm_failure_keeps_chat_and_shows_attempted_prompt(
 def test_failed_html_next_hint_does_not_advance_level(client, llm, start_params):
     page = client.get("/start", params=start_params)
     action, fields = read_form(page, "next-hint-form")
+    fields["hint_level"] = "2"
     llm.answer = LLMError("private upstream detail")
     response = client.get(action, params=fields)
     assert response.status_code == 502
@@ -744,6 +755,119 @@ def test_retry_rejects_invalid_or_unknown_chat(client, llm, chat_id, status):
     assert llm.calls == []
 
 
+def test_debug_mode_hides_diagnosis_and_prompt(client, llm, start_params, monkeypatch):
+    monkeypatch.setattr(main_module, "DEBUG_MODE", False)
+
+    response = client.get("/start", params=start_params)
+
+    assert response.status_code == 200
+    assert response.context["debug_mode"] is False
+    assert response.context["prompt"] is None
+    assert response.context["context_options"] is None
+    assert "STACK-Diagnose" not in response.text
+    # Die Diagnose-ANZEIGE ist weg; das Stufen-Dropdown des Folgehints liegt
+    # im Debug-Bereich und ist bei DEBUG_MODE=0 komplett ausgeblendet.
+    assert f"<strong>{start_params['diagnosis']}</strong>" not in response.text
+    assert 'id="debug-prompt"' not in response.text
+    assert 'id="debug-context-options"' not in response.text
+    assert 'id="next-hint-form"' not in response.text
+    # Studierende erfahren die Hilfestufe nicht (auch nicht im Hilfetext).
+    assert "Hilfestufe" not in response.text
+    assert "hilfestufe" not in response.text.lower()
+    # Der LLM-Kontext enthält die Diagnose weiterhin — nur die Anzeige ist weg.
+    prompt_text = json.dumps(llm.calls[-1]["messages"], ensure_ascii=False)
+    assert start_params["diagnosis"] in prompt_text
+    # Aufgabe und Antwort bleiben sichtbar.
+    assert response.context["question_text"] in response.text
+
+
+def test_task_and_answer_share_one_bubble_and_debug_level_dropdown(
+    client, llm, start_params
+):
+    response = client.get("/start", params=start_params)
+
+    assert response.status_code == 200
+    # Aufgabe und Deine Antwort liegen in derselben Bubble.
+    box_start = response.text.index('<div class="box">')
+    task_box = response.text[box_start:response.text.index("</div>", box_start)]
+    assert "<h2>Aufgabe</h2>" in task_box
+    assert "<h2>Deine Antwort</h2>" in task_box
+    # Die Bubble „Weitere Hilfe“ entfällt; das Stufen-Dropdown liegt im
+    # Debug-Bereich und bietet aktuelle und höhere Stufen an.
+    assert "<h2>Weitere Hilfe</h2>" not in response.text
+    form_start = response.text.index('id="next-hint-form"')
+    form_html = response.text[form_start:response.text.index("</form>", form_start)]
+    assert form_html.count("<option") == main_module.MAX_HINT_LEVEL
+    assert 'value="1" selected>' in form_html
+    assert "Weiterer Hinweis" not in response.text
+    # Die STACK-Diagnose liegt im Debug-Details, nicht in einer eigenen Box.
+    details_start = response.text.index("Debug-Informationen")
+    details_html = response.text[details_start:response.text.index("</details>", details_start)]
+    assert "STACK-Diagnose" in details_html
+    assert start_params["diagnosis"] in details_html
+    assert response.text.count("STACK-Diagnose") == 1
+
+
+def test_send_button_disabled_while_question_unanswered(client, llm, start_params):
+    page = client.get("/start", params=start_params)
+    action, fields = read_form(page, "chat-form")
+    fields["message"] = "Warum die Kettenregel?"
+    llm.answer = LLMError("private upstream detail")
+    failed = client.post(action, data=fields)
+
+    assert failed.status_code == 502
+    assert failed.context["retry_inline"] is True
+    assert (
+        '<button type="submit" class="hint-button" disabled>'
+        in failed.text
+    )
+    assert "Erneut versuchen" in failed.text
+    assert "noch ohne Tutor-Antwort" in failed.text
+
+    # Retry erfolgreich -> Senden-Knopf wieder aktiv.
+    retry_action, retry_fields = read_form(failed, "retry-form")
+    llm.answer = "Antwort nach Retry."
+    recovered = client.post(retry_action, data=retry_fields)
+
+    assert recovered.status_code == 200
+    assert (
+        '<button type="submit" class="hint-button" disabled>'
+        not in recovered.text
+    )
+    assert "noch ohne Tutor-Antwort" not in recovered.text
+
+
+def test_send_button_active_when_only_hint_retry_available(client, llm, start_params):
+    # Fehlgeschlagener /start: Retry liegt in der Fehlerbox, es gibt keine
+    # unbeantwortete Chatfrage — der Senden-Knopf bleibt aktiv.
+    llm.answer = LLMRateLimitError("private upstream detail")
+    failed = client.get("/start", params=start_params)
+
+    assert failed.status_code == 429
+    assert failed.context["retry_in_error"] is True
+    assert failed.context["retry_inline"] is False
+    assert "Erneut versuchen" in failed.text
+    assert (
+        '<button type="submit" class="hint-button" disabled>'
+        not in failed.text
+    )
+    assert "noch ohne Tutor-Antwort" not in failed.text
+
+
+def test_debug_failure_page_keeps_retry_but_hides_prompt(client, llm, start_params, monkeypatch):
+    monkeypatch.setattr(main_module, "DEBUG_MODE", False)
+    llm.answer = LLMError("private upstream detail")
+    failed = client.get("/start", params=start_params)
+
+    assert failed.status_code == 502
+    assert "Anfrage nicht abgeschlossen" in failed.text
+    assert failed.context["retry_in_error"] is True
+    assert "Erneut versuchen" in failed.text
+    assert failed.context["prompt"] is None
+    assert 'id="debug-prompt"' not in failed.text
+    assert "private upstream detail" not in failed.text
+
+
 def test_unknown_diagnosis_still_falls_back(client, llm, start_params):
     start_params["diagnosis"] = "unmapped_diagnosis"
     response = client.get("/start", params=start_params)
@@ -759,7 +883,8 @@ def test_old_hint_form_cannot_lower_level_or_relabel_solution_history(client, ll
     llm.answer = "Antwort auf Stufe 4"
     current = client.get(action, params={**old_fields, "hint_level": 4})
     assert current.status_code == 200
-    response = client.get(action, params=old_fields)
+    # Abgesetzte/stale Formulare dürfen die Stufe nicht senken.
+    response = client.get(action, params={**old_fields, "hint_level": 1})
     assert response.status_code == 400
     assert len(llm.calls) == 2
     assert main_module.CHAT_STORE.get_chat(chat_id)["current_hint_level"] == 4
@@ -781,6 +906,7 @@ def test_html_next_hint_accepts_browser_normalized_line_endings(client, llm, sta
     start_params["ans1"] = "x +\n 1"
     page = client.get("/start", params=start_params)
     action, fields = read_form(page, "next-hint-form")
+    fields["hint_level"] = "2"
     fields["ans1"] = fields["ans1"].replace("\n", "\r\n")
     response = client.get(action, params=fields)
     assert response.status_code == 200

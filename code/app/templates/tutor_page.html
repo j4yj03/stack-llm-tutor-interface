@@ -31,12 +31,21 @@
 
         .chat-history {
             list-style: none;
-            padding: 0;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 1rem;
+            max-height: min(30rem, 65vh);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            margin: 0 0 1rem;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fff;
         }
 
         .chat-message {
             padding: 0.8rem 1rem;
-            margin-bottom: 1rem;
             border-radius: 6px;
             border-left: 5px solid #777;
             background: #fff;
@@ -63,6 +72,24 @@
             border: 1px solid #777;
             border-radius: 6px;
             resize: vertical;
+        }
+
+        textarea,
+        select {
+            font: inherit;
+        }
+
+        select {
+            padding: 0.3rem 0.5rem;
+            border: 1px solid #777;
+            border-radius: 6px;
+        }
+
+        .next-hint-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
         }
 
         .error {
@@ -102,8 +129,13 @@
             cursor: pointer;
         }
 
-        .hint-button:hover {
-            background: #1f5fc4;
+        .hint-button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .hint-button:disabled:hover {
+            background: #2b7cff;
         }
 
         .hint-button:focus,
@@ -136,33 +168,18 @@
 <div class="box">
     <h2>Aufgabe</h2>
     <p class="question-text">{{ question_text }}</p>
-</div>
-
-<div class="box">
     <h2>Deine Antwort</h2>
-    <code>{{ student_answer }}</code>
-</div>
-
-<div class="box">
-    <h2>STACK-Diagnose</h2>
-    <p>
-        <strong>{{ diagnosis_code }}</strong>
-    </p>
-    {% if diagnosis_title %}
-        <p>{{ diagnosis_title }}</p>
-    {% else %}
-        <p>Übermittelt wurde der Diagnosecode. Ein passender PRT-Feedbacktext liegt nicht vor.</p>
-    {% endif %}
+    <p><code>{{ student_answer }}</code></p>
 </div>
 
 <section class="box" aria-labelledby="chat-heading">
     <h2 id="chat-heading">Chat mit dem Tutor</h2>
     <ol class="chat-history" aria-label="Chatverlauf">
-        {% for message in history if message.role in ["user", "assistant"] %}
+        {% for message in chat_messages %}
             <li class="chat-message{% if message.role == 'assistant' %} hint{% endif %}">
                 <strong>{{ "Du" if message.role == "user" else "Tutor" }}</strong>
                 <p class="message-content">{{ message.content }}</p>
-                {% if retry_inline and loop.last and message.role == "user" %}
+                {% if retry_inline and loop.first and message.role == "user" %}
                     <form id="retry-form" class="retry-form" method="post"
                           action="{{ request.url_for('tutor_retry_page', chat_id=chat_id) }}">
                         <input type="hidden" name="model" value="{{ model }}">
@@ -183,62 +200,67 @@
         <textarea id="message" name="message" rows="4" required
                   maxlength="{{ max_chat_message_length }}"
                   aria-describedby="chat-help">{{ message_draft }}</textarea>
-        <p id="chat-help">Bis zu {{ max_chat_message_length }} Zeichen. Eine Rückfrage bleibt auf
-            Hilfestufe {{ hint_level }}. Nach dem Senden lädt die Seite mit der Antwort neu.</p>
-        <button type="submit" class="hint-button">Nachricht senden</button>
+        {% if retry_inline %}
+            <p id="chat-help">Deine letzte Frage ist noch ohne Tutor-Antwort.
+                Bitte zunächst „Erneut versuchen“ in der Chatblase nutzen —
+                der Senden-Button ist bis dahin deaktiviert.</p>
+            <button type="submit" class="hint-button" disabled>
+                Nachricht senden
+            </button>
+        {% else %}
+            <p id="chat-help">Bis zu {{ max_chat_message_length }} Zeichen.
+                Nach dem Senden lädt die Seite mit der Antwort neu.</p>
+            <button type="submit" class="hint-button">
+                Nachricht senden
+            </button>
+        {% endif %}
     </form>
 </section>
 
-<div class="box">
-    <h2>Weitere Hilfe</h2>
+{% if debug_mode %}
+<details>
+    <summary>Debug-Informationen</summary>
+    <p>Modell: <code>{{ model }}</code>. Chat: <code>{{ chat_id }}</code>.
+        Aktuelle Hilfestufe: <strong>{{ hint_level }}</strong>.</p>
 
+    <h3>STACK-Diagnose</h3>
     <p>
-        Aktuelle Hilfestufe:
-        <strong>{{ hint_level }}</strong>
+        <strong>{{ diagnosis_code }}</strong>
     </p>
+    {% if diagnosis_title %}
+        <p>{{ diagnosis_title }}</p>
+    {% else %}
+        <p>Übermittelt wurde der Diagnosecode. Ein passender PRT-Feedbacktext liegt nicht vor.</p>
+    {% endif %}
 
     {% if hint_level < max_hint_level %}
         <form id="next-hint-form" method="get" action="{{ request.url_for('start') }}">
-            <input type="hidden"
-                   name="chat_id"
-                   value="{{ chat_id }}">
-
-            <input type="hidden"
-                   name="qid"
-                   value="{{ question_id }}">
-
-            <input type="hidden"
-                   name="diagnosis"
-                   value="{{ diagnosis_code }}">
-
-            <input type="hidden"
-                   name="ans1"
-                   value="{{ student_answer }}">
-
-            <input type="hidden"
-                   name="hint_level"
-                   value="{{ hint_level + 1 }}">
+            <input type="hidden" name="chat_id" value="{{ chat_id }}">
+            <input type="hidden" name="qid" value="{{ question_id }}">
+            <input type="hidden" name="diagnosis" value="{{ diagnosis_code }}">
+            <input type="hidden" name="ans1" value="{{ student_answer }}">
 
             {% if model %}
-                <input type="hidden"
-                       name="model"
-                       value="{{ model }}">
+                <input type="hidden" name="model" value="{{ model }}">
             {% endif %}
 
-            <button type="submit" class="hint-button">
-                Weiterer Hinweis
-            </button>
+            <label for="next-hint-level">Hilfestufe des nächsten Hinweises:</label>
+            <span class="next-hint-controls">
+                <select id="next-hint-level" name="hint_level">
+                    {% for level in range(hint_level, max_hint_level + 1) %}
+                        <option value="{{ level }}"{% if level == hint_level %} selected{% endif %}>{{ level }}</option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit" class="hint-button">
+                    Hinweis auf dieser Stufe erzeugen
+                </button>
+            </span>
         </form>
     {% else %}
-        <p>
-            Die höchste Hilfestufe wurde erreicht.
-        </p>
+        <p>Die höchste Hilfestufe wurde erreicht.</p>
     {% endif %}
-</div>
 
-<details>
-    <summary>Debug: erzeugter Prompt</summary>
-    <p>Modell: <code>{{ model }}</code>. Chat: <code>{{ chat_id }}</code>.</p>
     {% if context_options is not none %}
         <p>Kontextoptionen des letzten Aufrufs:</p>
         <pre id="debug-context-options">{{ context_options }}</pre>
@@ -254,6 +276,7 @@
     <p>Entwicklungsansicht: Enthält Aufgaben- und Chatdaten. Vor einem produktiven
         Einsatz mit Studierenden entfernen oder den Zugriff einschränken.</p>
 </details>
+{% endif %}
 
 </body>
 </html>

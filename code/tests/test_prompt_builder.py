@@ -41,6 +41,25 @@ def test_minimal_context(
     assert stack_context.final_answer not in text
 
 
+def test_system_prompt_keeps_hint_level_internal(
+    prompt_builder,
+    stack_context
+):
+    messages = prompt_builder.build_messages(
+        stack=stack_context,
+        hint_level=2,
+        options=ContextOptions(),
+        history=[]
+    )
+
+    system = messages[0]["content"]
+
+    # Die Stufe steuert den Prompt, darf aber im Tutorhinweis nicht
+    # genannt werden.
+    assert "AKTUELLE HILFESTUFE" in system
+    assert "Nenne die Hilfestufe oder Stufennummern nicht" in system
+
+
 def test_diagnosis_can_be_enabled(
     prompt_builder,
     stack_context

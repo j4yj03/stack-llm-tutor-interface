@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "profiles": [
+    {
+      "profile_id": "base",
+      "description": "Nur instanziierte Aufgabe und Studierendenantwort.",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": false,
+      "include_prt_feedback": false,
+      "include_score": false,
+      "include_learning_goals": false,
+      "include_math_rules": false,
+      "include_solution_steps": false,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "diagnosis",
+      "description": "Aufgabe + Antwort + strukturierter Diagnosecode.",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": true,
+      "include_prt_feedback": false,
+      "include_score": false,
+      "include_learning_goals": false,
+      "include_math_rules": false,
+      "include_solution_steps": false,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "feedback",
+      "description": "Aufgabe + Antwort + PRT-Feedbacktext (ohne Diagnosecode).",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": false,
+      "include_prt_feedback": true,
+      "include_score": false,
+      "include_learning_goals": false,
+      "include_math_rules": false,
+      "include_solution_steps": false,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "diagnosis_feedback",
+      "description": "Aufgabe + Antwort + Diagnosecode + Feedbacktext.",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": true,
+      "include_prt_feedback": true,
+      "include_score": false,
+      "include_learning_goals": false,
+      "include_math_rules": false,
+      "include_solution_steps": false,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "knowledge",
+      "description": "diagnosis_feedback + Lernziele + geprüfte mathematische Regeln.",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": true,
+      "include_prt_feedback": true,
+      "include_score": false,
+      "include_learning_goals": true,
+      "include_math_rules": true,
+      "include_solution_steps": false,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "steps",
+      "description": "knowledge + erlaubte verifizierte Lösungsschritte (Stufe 3).",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": true,
+      "include_prt_feedback": true,
+      "include_score": false,
+      "include_learning_goals": true,
+      "include_math_rules": true,
+      "include_solution_steps": true,
+      "include_final_answer": false,
+      "include_chat_history": false
+    },
+    {
+      "profile_id": "solution",
+      "description": "steps + Referenzendlösung; nur getrennte Stufe-4-Untersuchung.",
+      "include_question_text": true,
+      "include_student_answer": true,
+      "include_diagnosis_code": true,
+      "include_prt_feedback": true,
+      "include_score": false,
+      "include_learning_goals": true,
+      "include_math_rules": true,
+      "include_solution_steps": true,
+      "include_final_answer": true,
+      "include_chat_history": false
+    }
+  ]
+}

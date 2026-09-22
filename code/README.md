@@ -23,6 +23,7 @@ code/
 ├── moodle/         Moodle/STACK-Integrationsbausteine (siehe moodle/README.md)
 ├── schemas/        JSON-Schema für Aufgaben-Definitionen
 ├── tasks/          Lokale Aufgaben-Definitionen
+├── evaluation/     Evaluations-Suite (fachliche Tutor-API-Tests, siehe evaluation/README.md)
 ├── tests/          Pytest-Suite
 ├── .env            Lokale Secrets (niemals committen)
 ├── .env.example    Vorlage ohne Secrets
@@ -51,6 +52,15 @@ API-Dokumentation: `http://127.0.0.1:8000/docs`
 pytest -m "not integration" -v   # Unit-Tests ohne LLM-Zugang
 pytest -m integration -v         # Integrationstests (braucht API-Key in .env)
 ```
+
+## Evaluation (fachliche Test-Suite)
+
+Der Ordner `evaluation/` enthält eine separate, reproduzierbare Suite für
+fachliche Tutor-Experimente: Testaufgaben × Kontextprofile führen zu
+echten `POST /api/tutor/start`-Aufrufen, auswertbaren Ergebnissen und
+einem Jupyter-Notebook zur Offline-Analyse. Bedienung, Regeln
+(Live-Gate `--execute-live`, Budget, Versuchsjournal) und Zielformate:
+`evaluation/README.md` und `docs/evaluation_protocol.md`.
 
 ## Wichtige Regeln
 

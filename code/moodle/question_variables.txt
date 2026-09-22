@@ -4,6 +4,12 @@ rdm2: rand_with_prohib(-9,9,[0]);
 pp:v^-rdm+rdm*exp(v);
 p:rdm2*exp(pp);
 
+/* Debug-Schalter des KI-Tutors: 1 = der Diagnose-Marker wird im
+   PRT-Feedback uebertragen und der Code im Tutorbereich gezeigt (nur
+   Entwicklung); 0 oder geloeschte Variable = kein Diagnosecode, der
+   Tutor gibt nur allgemeine Hinweise. */
+debug:0;
+
 /* Auskommentiertes Experiment aus der bisherigen Frage. Das URL-Enkodieren
    uebernimmt jetzt der STACK-JS-Baustein mit URLSearchParams. Diese Funktion
    nur dann wieder einkommentieren, wenn eine alte Frage noch urlencode_basic

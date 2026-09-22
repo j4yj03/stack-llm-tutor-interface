@@ -1,0 +1,15 @@
+# Evaluationsumgebung (getrennt von der Server-Laufzeit, Python 3.11)
+# Der Runner selbst benötigt nur requests + pydantic (bereits in
+# requirements.txt der App enthalten). Die folgenden Einträge
+# vervollständigen die Analyseumgebung.
+#
+# Kopie der Kernabhängigkeiten für eine isolierte Env:
+pydantic>=2.5,<3
+requests>=2.31
+
+# Optional: symbolische Formelprüfung in checks.py
+# (ohne sympy bleiben entsprechende Checks ausdrücklich "inconclusive"):
+sympy>=1.12
+
+# Optional: Analyse-Notebook (liest nur gespeicherte Laufartefakte):
+jupyterlab>=4.0

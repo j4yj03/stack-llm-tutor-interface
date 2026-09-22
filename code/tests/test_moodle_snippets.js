@@ -21,9 +21,21 @@ const readBranch = (code) => {
     const end = prt.indexOf("</div>", marker) + "</div>".length;
     return prt.slice(start, end);
 };
-const feedback = (answer, code = diagnosis) => readBranch(diagnosis)
-    .replace(diagnosis, () => escapeHtml(code))
-    .replace("[[entityescape]]{#ans1#}[[/entityescape]]", () => escapeHtml(answer));
+const feedback = (answer, code = diagnosis, debug = true) => {
+    let branch = readBranch(diagnosis)
+        .replace(diagnosis, () => escapeHtml(code))
+        .replace("[[entityescape]]{#ans1#}[[/entityescape]]", () => escapeHtml(answer));
+    // STACK-Rendere Simulation des [[if test='debug>0']]-Blocks: bei
+    // debug=0/geloescht bleibt der Else-Zweig leer (kein Marker).
+    if (!debug) {
+        branch = branch.replace(
+            /<p><span class="ai-tutor-diagnosis"[\s\S]*?<\/span><\/p>/, ""
+        );
+    }
+    return branch
+        .replace(/\[\[if[^\]]*\]\]/g, "")
+        .replace(/\[\[\/if\]\]/g, "");
+};
 const enableTimers = (t) => t.mock.timers.enable({ apis: ["setTimeout"] });
 const flush = () => new Promise(setImmediate);
 const tick = async (t, ms) => {
@@ -44,7 +56,6 @@ function sandbox({ answer = "x+1", html = null, p = "-5*%e^(x^2-2*%e^x)", v = "x
     const reads = [];
     const warnings = [];
     const validationCallbacks = [];
-    let refresh;
     let getContent = () => Promise.resolve(html);
     let script = source.match(/\[\[javascript\]\]([\s\S]*?)\[\[\/javascript\]\]/)[1];
     script = script.replace(/\[\[jsstring\]\]([\s\S]*?)\[\[\/jsstring\]\]/g, (_, text) => {
@@ -105,10 +116,6 @@ function sandbox({ answer = "x+1", html = null, p = "-5*%e^(x^2-2*%e^x)", v = "x
                 }
                 validationCallbacks.push(callback);
             },
-            register_external_button_listener(id, callback) {
-                assert.equal(id, prefix + "ai-tutor-refresh");
-                refresh = callback;
-            },
         },
     }, { filename: "fragetext_castext.rendered.js", timeout: 1000 });
     return {
@@ -123,12 +130,11 @@ function sandbox({ answer = "x+1", html = null, p = "-5*%e^(x^2-2*%e^x)", v = "x
             );
         },
         change(value) { input.value = value; input.onchange(); },
-        refresh() { return refresh(prefix + "ai-tutor-refresh"); },
         setFeedback(value) { getContent = () => Promise.resolve(value); },
         setFetch(callback) { getContent = callback; },
         output() { return writes.at(-1); },
         url() {
-            const href = writes.at(-1).match(/<a href="([^"]+)"/);
+            const href = writes.at(-1).match(/<a\b[^>]*href="([^"]+)"/);
             return href ? new URL(decodeHtml(href[1])) : null;
         },
     };
@@ -149,7 +155,9 @@ test("field snippets preserve mathematics and use only STACK sandbox APIs", () =
     assert.match(prt, /\[\[quid id='ai-tutor-feedback'\/\]\]/);
     assert.equal(source.match(/\[\[javascript\]\]/g).length, 1);
     assert.equal(source.match(/http:\/\/127\.0\.0\.1:8000\/start/g).length, 1);
-    assert.match(source, /<button type="button" id="\[\[quid id='ai-tutor-refresh'\/\]\]"/);
+    assert.doesNotMatch(source, /ai-tutor-refresh|register_external_button_listener/);
+    assert.match(source, /KI-Tutor &ouml;ffnen \(neuer Tab\)/);
+    assert.match(source, /class="btn btn-primary" role="button"/);
     assert.doesNotMatch(source, /<script|parent\.|window\.|document\.querySelector|MutationObserver|setInterval|fetch\(|import /);
     assert.match(prt, /\[\[entityescape\]\]\{#ans1#\}\[\[\/entityescape\]\]/);
     assert.match(source, /register_validation_state_listener\("ans1", \(complete\) =>/);
@@ -158,6 +166,8 @@ test("field snippets preserve mathematics and use only STACK sandbox APIs", () =
     assert.doesNotMatch(source, /set\("question_text"/);
     assert.equal((prt.match(/class="ai-tutor-diagnosis"/g) || []).length, 2);
     assert.equal((prt.match(/\[\[quid id='ai-tutor-feedback'\/\]\]/g) || []).length, 2);
+    assert.equal((prt.match(/\[\[if test='debug>0'\]\]/g) || []).length, 2);
+    assert.match(variables, /debug:0;/);
     assert.match(prt, /data-diagnosis="wrong_derivative_inner_exp"/);
     assert.match(prt, /Die Ableitung von \{@pp@\} wurde vermutlich falsch bestimmt\./);
 });
@@ -234,7 +244,7 @@ test("late PRT rendering and a fresh sandbox after re-render are supported", asy
     await app.ready;
     assert.equal(app.url().searchParams.get("diagnosis"), "unknown_error");
     app.setFeedback(feedback("x+1"));
-    await app.refresh();
+    await app.validation(true);
     assert.equal(app.url().searchParams.get("diagnosis"), diagnosis);
     const other = sandbox({ prefix: "q2:-quid_", answer: "x+3", html: feedback("x+1") });
     await other.ready;
@@ -248,8 +258,8 @@ test("overlapping reads are suppressed and responses after edits are discarded",
     await app.ready;
     let complete;
     app.setFetch(() => new Promise((resolve) => { complete = resolve; }));
-    const first = app.refresh();
-    await app.refresh();
+    const first = app.validation(true);
+    await app.validation(true);
     assert.equal(app.reads.length, 2);
     app.change("x+2");
     app.change("x+1");
@@ -257,7 +267,7 @@ test("overlapping reads are suppressed and responses after edits are discarded",
     await first;
     assert.equal(app.url().searchParams.get("diagnosis"), "unknown_error");
     app.setFeedback(feedback("x+1"));
-    await app.refresh();
+    await app.validation(true);
     assert.equal(app.url().searchParams.get("diagnosis"), diagnosis);
 });
 
@@ -283,7 +293,7 @@ test("bridge errors fail safely without exposing input or upstream error text", 
     const app = sandbox({ html: feedback("x+1") });
     await app.ready;
     app.setFetch(() => Promise.reject(new Error("private upstream detail")));
-    await app.refresh();
+    await app.validation(true);
     assert.equal(app.warnings.length, 1);
     assert.doesNotMatch(app.warnings[0], /private upstream detail|x\+1/);
     // A failed probe never demotes: the retained binding still matches the
@@ -296,7 +306,7 @@ test("bridge errors fail safely without exposing input or upstream error text", 
     assert.equal(unavailable.reads.length, 0);
 });
 
-test("completed validation adopts the diagnosis automatically without the button", async (t) => {
+test("completed validation adopts the diagnosis automatically", async (t) => {
     enableTimers(t);
     const app = sandbox({ html: feedback("x+1") });
     await app.ready;
@@ -332,18 +342,40 @@ test("scheduled probes stay bounded instead of polling forever", async (t) => {
     assert.equal(app.reads.length, 3);
 });
 
-test("missing validation listener API degrades to button and change handling", async (t) => {
+test("missing validation listener API degrades to change handling and follow-up probes", async (t) => {
     enableTimers(t);
     const app = sandbox({ html: feedback("x+1"), validationListener: false });
     await app.ready;
     assert.equal(app.validationCount, 0);
     assert.equal(app.warnings.length, 1);
-    assert.match(app.warnings[0], /Aktualisieren-Button/);
+    assert.match(app.warnings[0], /Automatische Diagnoseaktualisierung/);
     assert.equal(app.url().searchParams.get("diagnosis"), diagnosis);
     app.change("x+2");
     assert.equal(app.url().searchParams.get("diagnosis"), "unknown_error");
     app.setFeedback(feedback("x+2"));
-    await app.refresh();
-    await flush();
+    await tick(t, 800);
     assert.equal(app.url().searchParams.get("diagnosis"), diagnosis);
+});
+
+test("debug variable gates marker transport and code display", async (t) => {
+    enableTimers(t);
+    // debug=0/geloescht: kein Marker -> unknown_error, keine Codeanzeige.
+    const off = sandbox({ html: feedback("x+1", diagnosis, false) });
+    await off.ready;
+    assert.equal(off.url().searchParams.get("diagnosis"), "unknown_error");
+    assert.doesNotMatch(off.output(), /PRT-Diagnose:/);
+    off.setFeedback(feedback("x+1", diagnosis, false));
+    await off.validation(true);
+    await flush();
+    assert.equal(off.url().searchParams.get("diagnosis"), "unknown_error");
+    assert.doesNotMatch(off.output(), /PRT-Diagnose:/);
+    // Auch nach erfolglosen Abrufen bleibt der Parameter unknown_error.
+    assert.match(off.url().search, /diagnosis=unknown_error/);
+
+    // debug=1: Marker wird uebertragen, Code uebernommen und gezeigt.
+    const on = sandbox({ html: feedback("x+1", diagnosis, true) });
+    await on.ready;
+    assert.equal(on.url().searchParams.get("diagnosis"), diagnosis);
+    assert.match(on.output(), /PRT-Diagnose: <code>/);
+    assert.match(on.output(), new RegExp(diagnosis));
 });

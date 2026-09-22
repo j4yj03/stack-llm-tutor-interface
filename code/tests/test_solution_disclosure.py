@@ -62,7 +62,10 @@ def test_solution_steps_are_hidden_at_level_one(
     stack_context
 ):
     options = ContextOptions(
-        include_solution_steps=True
+        include_solution_steps=True,
+        # Hermetisch: Lernziel-Defaults können textuell mit Lösungsschritten
+        # kollidieren; dieser Test prüft ausschließlich die Schritte.
+        include_learning_goals=False
     )
 
     messages = prompt_builder.build_messages(

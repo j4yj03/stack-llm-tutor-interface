@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "pilot-tooling-v1",
+  "protocol_version": "eval-protocol-1",
+  "description": "Werkzeug-Pilot auf synthetischen Fixtures: Kontextvergleich auf Stufe 1 plus ein steps-Check auf Stufe 3. Kein Forschungsergebnis: Fälle sind nicht verifiziert.",
+  "corpus_file": "evaluation/data/example_cases.jsonl",
+  "profiles": ["base", "diagnosis", "diagnosis_feedback"],
+  "hint_levels": [1],
+  "repetitions": 1,
+  "models": [],
+  "control_jobs": [
+    {"case_id": "chain-exp-missing-inner-001", "profile_id": "steps", "hint_level": 3, "repetitions": 1},
+    {"case_id": "prod-missing-term-001", "profile_id": "steps", "hint_level": 3, "repetitions": 1}
+  ],
+  "max_generations_per_hour": 35,
+  "order_seed": 20260921,
+  "allow_unverified_cases": true
+}

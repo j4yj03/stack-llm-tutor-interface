@@ -6,10 +6,8 @@
   <strong>KI-Tutor</strong>
   <p>Der Tutor-Link aktualisiert sich automatisch: bei jeder Eingabeänderung und,
     sobald eine Eingabevalidierung abgeschlossen ist, auch mit der PRT-Diagnose.
-    Der Button ist ein Fallback, falls die automatische Aktualisierung in Ihrer
-    Moodle-/STACK-Konfiguration nicht greift. Dies bewertet die Antwort nicht
-    erneut. Ohne zuordenbare PRT-Diagnose gibt es nur einen allgemeinen Hinweis.</p>
-  <button type="button" id="[[quid id='ai-tutor-refresh'/]]">Tutor-Link aktualisieren</button>
+    Dies bewertet die Antwort nicht erneut. Ohne zuordenbare PRT-Diagnose gibt es
+    nur einen allgemeinen Hinweis.</p>
   <div id="[[quid id='ai-tutor-link'/]]" aria-live="polite">
     Tutor-Link noch nicht bereit. Falls diese Meldung bleibt, STACK-JS-Konfiguration prüfen.
   </div>
@@ -59,9 +57,21 @@ stack_js.request_access_to_input("ans1", true, true).then((id) => {
             url.searchParams.set("model", MODEL);
         }
         const safeUrl = htmlEscape(url.href);
+        // Der Diagnosecode wird nur gezeigt, wenn der Marker ihn
+        // uebertragen hat (debug=1 in den Fragevariablen); unknown_error
+        // bleibt ein allgemeiner Hinweis ohne Codeanzeige.
+        const diagnosisLine = currentDiagnosis === "unknown_error"
+            ? ""
+            : '<p>PRT-Diagnose: <code>' + htmlEscape(currentDiagnosis) + '</code></p>';
+        // Der Tutor-Link erscheint als Button: Moodle-Bootstrap-Klasse plus
+        // Inline-Styles, damit die Darstellung nicht vom Theme abhaengt.
         stack_js.switch_content(LINK_ID,
-            '<p><a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">KI-Tutor &ouml;ffnen (neuer Tab)</a></p>'
-            + '<p>PRT-Diagnose: <code>' + htmlEscape(currentDiagnosis) + '</code></p>'
+            '<p><a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer"'
+            + ' class="btn btn-primary" role="button"'
+            + ' style="display: inline-block; padding: 0.4em 0.9em; background: #0f6cbf;'
+            + ' border: 1px solid #0f6cbf; border-radius: 4px; color: #fff;'
+            + ' text-decoration: none; font-weight: 600;">KI-Tutor &ouml;ffnen (neuer Tab)</a></p>'
+            + diagnosisLine
             + '<details><summary>Linkdetails / Klartext-URL</summary>'
             + '<p>Falls der Link nicht klickbar ist: diese URL im Browser &ouml;ffnen.</p>'
             + '<code style="overflow-wrap: anywhere;">' + safeUrl + '</code></details>');
@@ -131,14 +141,8 @@ stack_js.request_access_to_input("ans1", true, true).then((id) => {
             return finished;
         }, true);
     } catch (error) {
-        console.warn("KI-Tutor: Automatische Diagnoseaktualisierung nicht verfuegbar; Aktualisieren-Button nutzen.");
+        console.warn("KI-Tutor: Automatische Diagnoseaktualisierung nach Validierung nicht verfuegbar; die Diagnose bleibt unbestimmt, bis Feedback nach einer Eingabeaenderung oder beim Seiten-Neuladen erneut gelesen wird.");
     }
-
-    stack_js.register_external_button_listener("[[quid id='ai-tutor-refresh'/]]", () => {
-        const finished = probe();
-        scheduleProbes([1200, 3500]);
-        return finished;
-    });
 
     renderLink();
     return probe();

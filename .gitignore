@@ -13,3 +13,9 @@ email.txt
 *.db
 
 code/.ipynb_checkpoints/*
+
+# Evaluation: Laufartefakte und Rohexporte nicht committen
+code/evaluation/runs/*
+!code/evaluation/runs/.gitkeep
+code/evaluation/imports/*
+!code/evaluation/imports/.gitkeep

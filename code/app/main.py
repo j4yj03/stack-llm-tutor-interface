@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from app.chat_store import ChatStore
 from app.config import (
     ALLOWED_MODELS,
+    DEBUG_MODE,
     LLM_MODEL,
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_HINT_LEVEL,
@@ -59,12 +60,9 @@ CHAT_STORE = ChatStore()
 HINT_POLICY = HintPolicy()
 PROMPT_BUILDER = PromptBuilder(HINT_POLICY)
 
-# Kontextoptionen der HTML-Flows (/start, Chatnachricht, Retry).
-HTML_CONTEXT_OPTIONS = ContextOptions(
-    include_learning_goals=True,
-    include_solution_steps=True,
-    include_final_answer=True
-)
+# Kontextoptionen der HTML-Flows (/start, Chatnachricht, Retry): die
+# Defaultwerte der ContextOptions kommen aus CONTEXT_OPTIONS in der .env.
+HTML_CONTEXT_OPTIONS = ContextOptions()
 
 templates = Jinja2Templates(
     directory=str(TEMPLATE_DIR)
@@ -306,6 +304,29 @@ def render_tutor_page(
         and visible[-1]["role"] == "user"
     )
 
+    # Neueste Beiträge zuerst: Das Chat-Panel ist ein CSS-Scroll-Container
+    # (flex column-reverse) und initial am neuesten Beitrag verankert —
+    # ganz ohne JavaScript.
+    chat_messages = list(reversed(visible))
+
+    # Debug-Informationen (Prompt, ContextOptions) verlassen den Server im
+    # DEBUG_MODE nicht — der Debug-Bereich des Templates blendet sie aus.
+    prompt_json = None
+    if DEBUG_MODE and prompt_messages is not None:
+        prompt_json = json.dumps(
+            prompt_messages,
+            indent=2,
+            ensure_ascii=False
+        )
+
+    options_json = None
+    if DEBUG_MODE and context_options is not None:
+        options_json = json.dumps(
+            model_dump_compat(context_options),
+            indent=2,
+            ensure_ascii=False
+        )
+
     return templates.TemplateResponse(
         request=request,
         name="tutor_page.html",
@@ -319,22 +340,14 @@ def render_tutor_page(
             "hint_level": chat["current_hint_level"],
             "model": selected_model,
             "history": history,
-            "prompt": (
-                json.dumps(prompt_messages, indent=2, ensure_ascii=False)
-                if prompt_messages is not None else None
-            ),
-            "context_options": (
-                json.dumps(
-                    model_dump_compat(context_options),
-                    indent=2,
-                    ensure_ascii=False
-                )
-                if context_options is not None else None
-            ),
+            "chat_messages": chat_messages,
+            "prompt": prompt_json,
+            "context_options": options_json,
             "max_hint_level": MAX_HINT_LEVEL,
             "max_chat_message_length": MAX_CHAT_MESSAGE_LENGTH,
             "error": error,
             "message_draft": message_draft,
+            "debug_mode": DEBUG_MODE,
             "retry_hint_level": retry_hint_level,
             "retry_inline": retry_inline,
             "retry_in_error": (

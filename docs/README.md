@@ -19,6 +19,7 @@ Lebende Schnittstellen-/Betriebsdokumentation liegt woanders:
 | `Vorgehen bis Anfang September.md` | Arbeitsplan und Fehleranalyse bis zur Abschaltung der HTW-API |
 | `llm_api_alternative_vorschlaege.md` | Alternativenvergleich für den Backend-Wechsel |
 | `auswertung_kontextsteuerung.md` | Ergebnisse zur Kontextsteuerung im Prompt |
+| `evaluation_protocol.md` | Protokoll der fachlichen Evaluations-Suite (`code/evaluation/`) |
 | `json_schema_info.md`, `neu.md`, `neu - Kopie.md` | Schema-/Formatarbeitsentwürfe (Arbeitsnotizen) |
 | `files/` | exportierte Einzelnotizen/Snippets (siehe `files/README.md`) |
 

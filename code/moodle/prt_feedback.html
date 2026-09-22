@@ -3,18 +3,26 @@
      Feedback). Der Container ai-tutor-feedback ist die Lesestelle fuer
      stack_js.get_content(); der unsichtbare Marker bindet die Diagnose an die
      exakt bewertete Antwort ([[entityescape]]{#ans1#}[[/entityescape]]), nicht
-     an den sichtbaren Feedbacktext. -->
+     an den sichtbaren Feedbacktext.
+     Der Marker steht im [[if]]-Block und wird nur uebertragen, wenn die
+     Fragevariable debug auf 1 steht (debug:0 oder geloeschte Variable ->
+     kein Diagnosecode; ein symbolischer Test bei fehlender Variable faellt
+     in den Else-Zweig und bricht nicht). -->
 
 <!-- Zweig: missing_chain_rule_inner_derivative -->
 <div id="[[quid id='ai-tutor-feedback'/]]">
+  [[if test='debug>0']]
   <p><span class="ai-tutor-diagnosis" style="display: none;"
       data-diagnosis="missing_chain_rule_inner_derivative">[[entityescape]]{#ans1#}[[/entityescape]]</span></p>
+  [[/if]]
   <p>Die innere Ableitung der Kettenregel fehlt.</p>
 </div>
 
 <!-- Zweig: wrong_derivative_inner_exp -->
 <div id="[[quid id='ai-tutor-feedback'/]]">
+  [[if test='debug>0']]
   <p><span class="ai-tutor-diagnosis" style="display: none;"
       data-diagnosis="wrong_derivative_inner_exp">[[entityescape]]{#ans1#}[[/entityescape]]</span></p>
+  [[/if]]
   <p>Die Ableitung von {@pp@} wurde vermutlich falsch bestimmt.</p>
 </div>

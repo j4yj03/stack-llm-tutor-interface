@@ -9,7 +9,7 @@ PRT-Diagnosen; JavaScript transportiert Daten, das LLM formuliert Hinweise.
 
 | Datei | Moodle/STACK-Zielfeld | Inhalt |
 | --- | --- | --- |
-| `question_variables.txt` | Fragevariablen / Question variables | Ausschließlich Maxima/STACK-Zuweisungen für `v`, `rdm`, `rdm2`, `pp`, `p` |
+| `question_variables.txt` | Fragevariablen / Question variables | Ausschließlich Maxima/STACK-Zuweisungen für `v`, `rdm`, `rdm2`, `pp`, `p` und den Debug-Schalter `debug` (plus auskommentierte Legacy-Referenz) |
 | `fragetext_castext.html` | Fragetext / Question text, HTML-Quelltextmodus | CASText, Eingabe `ans1`, Tutor-Bereich und ein `[[javascript]]`-Block; bewusst **kein** `[[feedback:...]]`-Tag |
 | `prt_feedback.html` | Feedback der passenden PRT-Zweige; erscheint als spezifisches Feedback | Zweig-Beispiele für `missing_chain_rule_inner_derivative` und `wrong_derivative_inner_exp`, jeweils im Container `ai-tutor-feedback` (Lesestelle für `get_content`) mit Marker zur exakt bewerteten Antwort; sichtbare Texte dürfen CAS-Variablen wie `{@pp@}` nutzen |
 
@@ -19,7 +19,7 @@ in ihren Moodle-Feldern; die Bausteine erzeugen keinen Diagnosebaum.
 
 ## Installation
 
-1. In einer Testkopie der bestehenden STACK-Frage arbeiten. Die fünf mathematischen Zuweisungen aus `question_variables.txt` übernehmen; Formel und Randomisierung sind unverändert. Andere für die bestehende Frage notwendige Variablen nicht löschen.
+1. In einer Testkopie der bestehenden STACK-Frage arbeiten. Die fünf mathematischen Zuweisungen aus `question_variables.txt` übernehmen; Formel und Randomisierung sind unverändert. Andere für die bestehende Frage notwendige Variablen nicht löschen. Für die Entwicklungsphase `debug:1;` setzen (siehe Abschnitt „Debug-Schalter"); im Betrieb mit Studierenden bleibt es bei `debug:0;` oder die Variable wird gelöscht.
 2. `fragetext_castext.html` dem Feld Fragetext im HTML-/Quelltextmodus zuordnen. Der Rich-Text-Editor darf JavaScript nicht in Absätze oder HTML-Entities umwandeln. Die Eingabe muss `ans1` heißen. Ein `[[feedback:...]]`-Tag gehört **nicht** in den Fragetext: Das PRT-Feedback wird über die spezifische Feedback-Ausgabe von Moodle angezeigt. In bestehenden Fragen vorhandene `[[feedback:...]]`-Tags nicht einfach löschen, ohne die Frage anschließend zu testen; solche Tags steuern die Anzeige von PRT-Feedback.
 3. `BASE_URL` **einmal, am Anfang des JavaScript-Blocks**, konfigurieren. `http://127.0.0.1:8000/start` ist nur für lokale Entwicklung: Die Adresse meint den Rechner des jeweiligen Browsers, nicht den Moodle-Server. Im Hochschulbetrieb eine für Lernende erreichbare HTTPS-Adresse des Tutors einsetzen. Keine Secrets oder Zugangsdaten in die URL schreiben.
 4. `QID` auf eine vorhandene Backend-Aufgaben-ID abstimmen. `MODEL` bleibt normalerweise leer und verwendet den Backend-Standard. Ein explizites Modell muss in dessen `ALLOWED_MODELS` stehen. Hinweisstufe ist zunächst `1`.
@@ -74,10 +74,10 @@ Versionsgarantie**. Benötigt werden auf beiden Seiten der Bridge:
 
 - `[[javascript]]`, das eine versteckte Sandbox mit automatisch importiertem `stack_js` erzeugt. Kein eigener Import und keine externen JS-Abhängigkeiten [2].
 - `request_access_to_input("ans1", true, true)`, einschließlich der Fragebegrenzung im dritten Argument (STACK-JS 1.3.0). Das Promise liefert die ID eines **lokalen versteckten Spiegel-Inputs**, nicht das Moodle-Eingabefeld. Moodle-`input`- und `change`-Ereignisse kommen dort als `change` an [1, 7].
-- `get_content(id)` (STACK-JS 1.1.0), das asynchron `innerHTML` oder `null` liefert; `register_external_button_listener(id, callback)` (1.2.0); die korrigierte `switch_content`-Implementierung (1.0.1) [1, 7].
-- `register_validation_state_listener(name, callback, limittoquestion)` für die automatische Diagnoseübernahme nach abgeschlossener Eingabevalidierung. Fehlt die API in der installierten STACK-Version, warnt der Baustein in der Konsole; Änderungs-Nachfragen, Aktualisieren-Button und Seiten-Neuladen bleiben funktionsfähig [1].
+- `get_content(id)` (STACK-JS 1.1.0), das asynchron `innerHTML` oder `null` liefert; die korrigierte `switch_content`-Implementierung (1.0.1) [1, 7].
+- `register_validation_state_listener(name, callback, limittoquestion)` für die automatische Diagnoseübernahme nach abgeschlossener Eingabevalidierung. Fehlt die API in der installierten STACK-Version, warnt der Baustein in der Konsole; Änderungs-Nachfragen und Seiten-Neuladen bleiben funktionsfähig [1].
 - `[[quid id='...'/]]` für frage-/verwendungs-eindeutige IDs, auch bei mehreren `ans1`-Fragen auf einer Seite [5].
-- CASText `{#...#}`, `[[jsstring]]` und `[[entityescape]]` sowie die vorhandenen STACK-Zufallsfunktionen [3-5]. Moderne Browser mit `URL`, `URLSearchParams`, Promises, `async`/`await` und HTML-`template`.
+- CASText `{#...#}`, `[[jsstring]]`, `[[entityescape]]`, `[[if]]`-Bedingungsblöcke sowie die vorhandenen STACK-Zufallsfunktionen [3-5]. Moderne Browser mit `URL`, `URLSearchParams`, Promises, `async`/`await` und HTML-`template`.
 
 Die Funktionsanforderungen auf dem Zielsystem prüfen, statt aus einer
 Moodle-Versionsnummer auf vorhandene STACK-JS-Funktionen zu schließen.
@@ -143,15 +143,12 @@ einmal PRT-Feedback gelesen. Danach aktualisiert sich der Link **automatisch**:
 - Nach einer abgeschlossenen Eingabevalidierung („instant validation“ der
   Eingabe) übernimmt `register_validation_state_listener` die Diagnose
   automatisch: sofort plus zwei versetzte Abrufe (ca. 1,2 s und 3,5 s).
-- Der Moodle-Button „Tutor-Link aktualisieren“ ist der Fallback, wird über
-  STACK-JS angebunden (nicht per Inline-Handler oder direktem DOM-Zugriff),
-  ist `type="button"` und löst keine Abgabe aus.
 - Nach einem kompletten Neu-Render der Frage initialisiert sich der Block neu
   und liest das Feedback beim Start.
 
 Kein Dauer-Polling: Es gibt keine `setInterval`-Schleife. Nachfragen sind an
-Änderungen, Validierungsabschlüsse oder Button-Klicks gebunden, werden bei
-jedem neuen Trigger neu gestartet (Debouncing) und enden von selbst.
+Änderungen oder Validierungsabschlüsse gebunden, werden bei jedem neuen
+Trigger neu gestartet (Debouncing) und enden von selbst.
 Überlappende `get_content`-Abrufe derselben ID werden unterbunden.
 
 Eine Diagnose wird nur übernommen, wenn genau ein Marker vorliegt, sein Code
@@ -179,13 +176,38 @@ Instant-Validation kann das PRT-Feedback erst nach kurzer Verzögerung
 eintreffen; die versetzten Nachfragen fangen das ab. Bereits geöffnete
 Tutor-Tabs werden nicht synchronisiert.
 
+## Debug-Schalter
+
+Die Fragevariable `debug` steuert, ob ein Diagnosecode überhaupt in
+Erscheinung tritt:
+
+- `debug:1;` — der Diagnose-Marker wird im PRT-Feedback ausgeliefert, die
+  Bridge übernimmt den Code und der Tutorbereich zeigt die Zeile
+  „PRT-Diagnose: <code>…“ (Entwicklung/Analyse).
+- `debug:0;` — kein Marker im Feedback, die Bridge findet keinen Code, der
+  Link bleibt bei `unknown_error` und der Tutorbereich zeigt **keine**
+  Diagnosezeile; der Tutor gibt weiterhin allgemeine Hinweise.
+- Variable gelöscht — der `[[if test='debug>0']]`-Block wertet den Test
+  symbolisch aus (nicht `true`) und fällt in den leeren Else-Zweig; die
+  Frage bricht nicht, es erscheint kein Diagnosecode.
+
+Technik: Der Marker steht in `prt_feedback.html` innerhalb des
+`[[if test='debug>0']]`-Blocks des jeweiligen PRT-Zweigs; der sichtbare
+Zweigtext (z. B. „Die Ableitung von `{@pp@}` …“) bleibt immer sichtbar.
+Grund für die Voreinstellung `debug:0;`: Der Marker steht technisch im
+HTML der spezifischen Feedback-Ausgabe und wäre für Neugierige mit
+Entwicklerwerkzeugen lesbar — Diagnosencodes gehören nicht in die Hände
+der Studierenden. Wird der Variablenname in einer Frage geändert (z. B.
+wegen Kollision mit bestehenden Variablen), sind sowohl die Fragevariable
+als auch der Test im `[[if]]`-Block jedes Marker-Blocks anzupassen.
+
 ## Grenzen und Debugging
 
-- Der normale Anchor wird mittels `switch_content` **im VLE** erzeugt, mit `target="_blank"` und `rel="noopener noreferrer"`. Kein `window.open`, kein Sandbox-Popup, kein `parent.document`. STACK/Moodle filtern das übertragene HTML. Falls die Installation `href` entfernt, steht dieselbe escaped URL unter „Linkdetails / Klartext-URL“ zur Verfügung; Sicherheitsfilter nicht umgehen [1, 7].
+- Der normale Anchor wird mittels `switch_content` **im VLE** erzeugt, mit `target="_blank"` und `rel="noopener noreferrer"`; er ist als Button gestaltet (Moodle-Klasse `btn btn-primary` plus Inline-Styles als Theme-Fallback) und öffnet den Tutor in einem neuen Tab. Kein `window.open`, kein Sandbox-Popup, kein `parent.document`. STACK/Moodle filtern das übertragene HTML. Falls die Installation `href` entfernt, steht dieselbe escaped URL unter „Linkdetails / Klartext-URL“ zur Verfügung; Sicherheitsfilter nicht umgehen [1, 7].
 - Eine normale Navigation zu `/start` benötigt keine CORS-Freigabe des Tutors. STACK muss allerdings seine eigenen Sandbox-Module ausliefern können. Browserkonsole, CSP und die lokale STACK-JS-Konfiguration prüfen, wenn der Starttext stehen bleibt.
 - Leere Antworten erzeugen keinen Link. Funktionen über 5000 Zeichen werden nicht abgeschnitten und nicht übertragen. `ans1` unterliegt weiterhin dem Backend-Limit `MAX_STUDENT_ANSWER_LENGTH` (standardmäßig 2000); das Snippet dupliziert diesen deploymentabhängigen Wert nicht. HTTP 422 weist unter anderem auf ungültige Parameter hin.
 - GET-URLs können durch Browser, Reverse Proxy oder Webserver schon unterhalb dieser Zeichenlimits begrenzt sein; Encoding vergrößert die URL. Bei HTTP 414 die Infrastruktur/Transportform klären, nicht die Aufgabe still kürzen.
-- `unknown_error` ist kein Nachweis einer falschen Antwort. Markerposition, den exakten Antworttext, die Sichtbarkeit des spezifischen Feedbacks (Review-Optionen), mehrere Marker, Rendering-Zeitpunkt und Backend-Diagnosekatalog prüfen. Bei Bridge-Timeouts erscheint eine feste Warnung ohne Schülerdaten in der Konsole; gegebenenfalls Seite neu laden.
+- `unknown_error` ist kein Nachweis einer falschen Antwort. Markerposition, den exakten Antworttext, die Sichtbarkeit des spezifischen Feedbacks (Review-Optionen), den Debug-Schalter (`debug:0` unterdrückt Marker und Codeanzeige bewusst), mehrere Marker, Rendering-Zeitpunkt und Backend-Diagnosekatalog prüfen. Bei Bridge-Timeouts erscheint eine feste Warnung ohne Schülerdaten in der Konsole; gegebenenfalls Seite neu laden.
 - Linkdetails enthalten Antwort und Funktion. Keine personenbezogenen Daten oder Secrets übertragen, Links nicht öffentlich teilen. HTTPS und `noreferrer` verhindern nicht, dass die GET-URL in Browserhistorie und Server-/Proxy-Logs landet. Logging und Aufbewahrung entsprechend konfigurieren.
 - Die URL ist editierbar und keine signierte STACK-Bewertung oder Authentifizierung. Backend-Validierung bleibt nötig; keine Noten oder Zugriffsrechte aus diesen Parametern ableiten.
 
@@ -235,15 +257,15 @@ Sandbox-Zugriffe, Parameter-Roundtrips, HTML-Escaping, zufällige Formeldaten,
 fehlende/veraltete/verspätete Diagnosen, die automatische Aktualisierung mit
 gemockten Timern und Fehlerfälle. Er ersetzt **keinen** CASText-/Maxima-Lauf
 und **keinen** echten HTML-Parser-/Moodle-Filtertest. Lokal ausgeführt mit
-`node.exe` v26.9.0: zwölf Tests erfolgreich.
+`node.exe` v26.9.0: dreizehn Tests erfolgreich.
 
 Kein Moodle-Zugang vorhanden. Vor Freigabe auf echtem Moodle prüfen:
 
 1. Felder speichern und STACK-Fragentests ausführen, einschließlich der bereinigten Input-Extra-Optionen. Mehrere Seeds: sichtbare Formel und decodierte `funktion` müssen dieselbe Aufgabe beschreiben; richtige Antwort/PRTs funktionieren unverändert.
 2. Ohne Antwort kein Link; ohne Bewertung ein allgemeiner Link. Mit passendem PRT-Marker exakte Diagnose; bei normalisierter Schreibweise konservatives `unknown_error`. Korrekte und ungültige Antworten dürfen keinen falschen Diagnose-Marker erhalten.
 3. Nach Bewertung `ans1` ändern, löschen und zurückändern. Vor erneuter Zuordnung darf keine spezifische alte Diagnose an einer anderen Antwort hängen. Änderung während verzögertem Feedback und schnelle Mehrfachklicks testen; der Link muss sich bei jeder Änderung selbstständig neu aufbauen.
-4. Asynchrone Bewertung, erneute Abgabe, Moodle-Neu-Render, Navigation zurück sowie Wiederaufnahme eines Versuchs testen. Aktualisieren-Button darf keine Bewertung/Abgabe auslösen und muss nach Neu-Render wieder funktionieren.
-5. Automatische Diagnoseübernahme: Mit aktivierter Instant-Validation nach „Check“ warten, ohne den Button zu nutzen — die Diagnose muss innerhalb weniger Sekunden im Link erscheinen. Mit deaktivierter Instant-Validation bleibt der Button der Weg. Browserkonsole auf die Warnung zur fehlenden Listener-API sowie auf unerwartete Dauer-Nachfragen prüfen.
+4. Asynchrone Bewertung, erneute Abgabe, Moodle-Neu-Render, Navigation zurück sowie Wiederaufnahme eines Versuchs testen. Der Tutor-Bereich darf keine Bewertung/Abgabe auslösen und muss sich nach Neu-Render selbstständig neu initialisieren.
+5. Automatische Diagnoseübernahme: Mit aktivierter Instant-Validation nach „Check“ warten — die Diagnose muss innerhalb weniger Sekunden im Link erscheinen. Mit deaktivierter Instant-Validation bleibt `unknown_error` stehen; die Diagnose wird erst nach neuer Eingabe (Nachfragen) oder Seiten-Neuladen aktualisiert. Browserkonsole auf die Warnung zur fehlenden Listener-API sowie auf unerwartete Dauer-Nachfragen prüfen.
 6. Zwei Fragen mit jeweils `ans1` auf derselben Seite: Links, Feedback und Spiegelwerte strikt getrennt. Frage ohne passendes Input darf nicht die Antwort der Nachbarfrage lesen.
 7. `+`, `%`, `&`, Anführungszeichen, Backslashes, Umlaute und Leerzeichen in Testeingaben exakt nach URL-Decoding vergleichen; testweise HTML darf weder im Tutorbereich noch im PRT-Marker ausführbar werden.
 8. Anchor/HTTPS-Ziel, neuer Tab, `noopener`/`noreferrer`, Klartext-Fallback bei gefiltertem `href`, CSP, Tastaturbedienung sowie Desktop-/Mobilansicht prüfen. Getrennt lokale und Hochschuladresse testen.
