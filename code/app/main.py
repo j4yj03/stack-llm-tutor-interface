@@ -1,9 +1,12 @@
+import json
+import logging
 import re
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import (
     FastAPI,
+    Form,
     HTTPException,
     Query,
     Request
@@ -15,7 +18,10 @@ from app.chat_store import ChatStore
 from app.config import (
     ALLOWED_MODELS,
     LLM_MODEL,
+    MAX_CHAT_MESSAGE_LENGTH,
+    MAX_HINT_LEVEL,
     MAX_HISTORY_MESSAGES,
+    MAX_QUESTION_TEXT_LENGTH,
     MAX_STUDENT_ANSWER_LENGTH,
     TEMPLATE_DIR
 )
@@ -46,10 +52,19 @@ DIAGNOSIS_PATTERN = re.compile(
     r"^[a-zA-Z0-9_\-]+$"
 )
 
+logger = logging.getLogger(__name__)
+
 TASKS = load_all_tasks()
 CHAT_STORE = ChatStore()
 HINT_POLICY = HintPolicy()
 PROMPT_BUILDER = PromptBuilder(HINT_POLICY)
+
+# Kontextoptionen der HTML-Flows (/start, Chatnachricht, Retry).
+HTML_CONTEXT_OPTIONS = ContextOptions(
+    include_learning_goals=True,
+    include_solution_steps=True,
+    include_final_answer=True
+)
 
 templates = Jinja2Templates(
     directory=str(TEMPLATE_DIR)
@@ -101,8 +116,31 @@ def select_model(
 def task_to_stack_context(
     task: Dict,
     student_answer: str,
-    diagnosis_code: str
+    diagnosis_code: str,
+    question_text: Optional[str] = None
 ) -> StackContext:
+    if question_text is not None and question_text != task["question_text"]:
+        # Moodle variant: the question text comes from STACK, so only generic
+        # task data (goals, rules, diagnosis title) may be attached. The local
+        # model solution holds example values of a fixed variant.
+        diagnosis = task["diagnoses"][diagnosis_code]
+
+        return StackContext(
+            question_id=task["question_id"],
+            question_text=question_text,
+            student_answer=student_answer,
+            diagnosis_code=diagnosis_code,
+            prt_feedback=diagnosis.get("title"),
+            learning_goals=task.get(
+                "learning_goals",
+                []
+            ),
+            math_rules=task.get(
+                "math_rules",
+                []
+            )
+        )
+
     diagnosis = task["diagnoses"][
         diagnosis_code
     ]
@@ -148,19 +186,36 @@ def task_to_stack_context(
     )
 
 
+def get_chat_or_404(chat_id: str) -> Dict:
+    try:
+        chat = CHAT_STORE.get_chat(chat_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat nicht gefunden")
+
+    return chat
+
+
+class HintGenerationError(HTTPException):
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        prompt_messages: List[Dict[str, str]]
+    ) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.prompt_messages = prompt_messages
+
+
 def generate_hint(
     chat_id: str,
     hint_level: int,
     options: ContextOptions,
     selected_model: str
-) -> str:
-    chat = CHAT_STORE.get_chat(chat_id)
-
-    if chat is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat nicht gefunden"
-        )
+) -> Tuple[str, List[Dict[str, str]]]:
+    chat = get_chat_or_404(chat_id)
 
     stack_context = StackContext(
         **chat["stack_context"]
@@ -179,29 +234,115 @@ def generate_hint(
     )
 
     try:
-        return create_llm_client().chat(
+        tutor_answer = create_llm_client().chat(
             messages=messages,
             model=selected_model,
             temperature=0.2,
             max_tokens=400
         )
     except LLMRateLimitError as exc:
-        raise HTTPException(
+        # Serverseitige Diagnose; enthält keine Keys oder Auth-Header.
+        logger.warning(
+            "LLM-Ratelimit bei Modell %s: %s",
+            selected_model,
+            exc
+        )
+        raise HintGenerationError(
             status_code=429,
             detail=(
                 "Rate-Limit des LLM-Dienstes erreicht. "
-                "Bitte kurze Zeit warten. "
-                f"Ursache: {exc}"
-            )
+                "Bitte kurze Zeit warten."
+            ),
+            prompt_messages=messages
         ) from exc
     except LLMError as exc:
-        raise HTTPException(
+        logger.warning(
+            "LLM-Fehler bei Modell %s: %s",
+            selected_model,
+            exc
+        )
+        raise HintGenerationError(
             status_code=502,
             detail=(
-                "Fehler beim Aufruf des "
-                f"Hochschul-LLM: {exc}"
-            )
+                "Fehler beim Aufruf des Hochschul-LLM. "
+                "Bitte später erneut versuchen."
+            ),
+            prompt_messages=messages
         ) from exc
+
+    return tutor_answer, messages
+
+
+def render_tutor_page(
+    request: Request,
+    chat_id: str,
+    selected_model: str,
+    prompt_messages: Optional[List[Dict[str, str]]] = None,
+    context_options: Optional[ContextOptions] = None,
+    error: Optional[str] = None,
+    status_code: int = 200,
+    message_draft: str = "",
+    retry_hint_level: Optional[int] = None
+) -> HTMLResponse:
+    chat = get_chat_or_404(chat_id)
+    stack = StackContext(**chat["stack_context"])
+    history = CHAT_STORE.get_messages(chat_id)
+
+    # Genau ein Retry-Steuerlement pro Fehlerseite: inline neben der
+    # unbeantworteten Frage im Chat, sonst in der Fehlerbox (z. B. nach
+    # fehlgeschlagenem /start-Aufruf ohne Chatnachricht).
+    retry_available = (
+        error is not None
+        and retry_hint_level is not None
+    )
+    visible = [
+        message
+        for message in history
+        if message["role"] in ("user", "assistant")
+    ]
+    retry_inline = (
+        retry_available
+        and bool(visible)
+        and visible[-1]["role"] == "user"
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="tutor_page.html",
+        context={
+            "chat_id": chat_id,
+            "question_id": stack.question_id,
+            "question_text": stack.question_text,
+            "student_answer": stack.student_answer,
+            "diagnosis_code": stack.diagnosis_code or "unknown_error",
+            "diagnosis_title": stack.prt_feedback,
+            "hint_level": chat["current_hint_level"],
+            "model": selected_model,
+            "history": history,
+            "prompt": (
+                json.dumps(prompt_messages, indent=2, ensure_ascii=False)
+                if prompt_messages is not None else None
+            ),
+            "context_options": (
+                json.dumps(
+                    model_dump_compat(context_options),
+                    indent=2,
+                    ensure_ascii=False
+                )
+                if context_options is not None else None
+            ),
+            "max_hint_level": MAX_HINT_LEVEL,
+            "max_chat_message_length": MAX_CHAT_MESSAGE_LENGTH,
+            "error": error,
+            "message_draft": message_draft,
+            "retry_hint_level": retry_hint_level,
+            "retry_inline": retry_inline,
+            "retry_in_error": (
+                retry_available and not retry_inline
+            )
+        },
+        status_code=status_code
+    )
 
 
 @app.get("/health")
@@ -238,11 +379,13 @@ def start(
     hint_level: int = Query(
         1,
         ge=1,
-        le=4
+        le=MAX_HINT_LEVEL
     ),
     model: Optional[str] = Query(None),
-    chat_id: Optional[str] = Query(None)
-):
+    chat_id: Optional[str] = Query(None),
+    question_text: Optional[str] = Query(None),
+    funktion: Optional[str] = Query(None)
+) -> HTMLResponse:
     if not QID_PATTERN.fullmatch(qid):
         raise HTTPException(
             status_code=400,
@@ -275,6 +418,41 @@ def start(
             detail="Studierendenantwort ist zu lang"
         )
 
+    if question_text is not None and funktion is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Bitte nur question_text oder funktion "
+                "übergeben, nicht beides."
+            )
+        )
+
+    if question_text is not None:
+        if len(question_text) > MAX_QUESTION_TEXT_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail="Aufgabenstellung ist zu lang"
+            )
+        question_text = question_text.strip()
+        if not question_text:
+            raise HTTPException(
+                status_code=400,
+                detail="Aufgabenstellung darf nicht leer sein"
+            )
+
+    if funktion is not None:
+        if len(funktion) > MAX_QUESTION_TEXT_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail="Funktionsbeschreibung ist zu lang"
+            )
+        funktion = funktion.strip()
+        if not funktion:
+            raise HTTPException(
+                status_code=400,
+                detail="Funktionsbeschreibung darf nicht leer sein"
+            )
+
     selected_model = select_model(model)
     task = TASKS[qid]
 
@@ -290,26 +468,27 @@ def start(
             )
         )
 
-    stack_context = task_to_stack_context(
-        task=task,
-        student_answer=ans1,
-        diagnosis_code=diagnosis
-    )
+    if funktion is not None:
+        # Generic text template from the task JSON + instantiated function
+        # from Moodle/STACK. The composed text drives display, prompt and
+        # the stored chat context; only generic local data is attached.
+        template = task.get("question_text_template")
+
+        if not template:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "question_text_template fehlt in der Aufgaben-JSON"
+                )
+            )
+
+        question_text = template.replace(
+            "{funktion}",
+            funktion
+        )
 
     if chat_id:
-        try:
-            chat = CHAT_STORE.get_chat(chat_id)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=str(exc)
-            ) from exc
-
-        if chat is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Chat nicht gefunden"
-            )
+        chat = get_chat_or_404(chat_id)
 
         if chat["question_id"] != qid:
             raise HTTPException(
@@ -320,11 +499,34 @@ def start(
                 )
             )
 
-        CHAT_STORE.set_hint_level(
-            chat_id,
-            hint_level
-        )
+        stack_context = StackContext(**chat["stack_context"])
+        if (
+            # HTML forms normalize line endings to CRLF on submission.
+            ans1.replace("\r\n", "\n").replace("\r", "\n")
+            != stack_context.student_answer.replace("\r\n", "\n").replace("\r", "\n")
+            or diagnosis != stack_context.diagnosis_code
+            or (question_text is not None
+                and question_text != stack_context.question_text)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Aufgabe, Antwort oder Diagnose passen nicht zum Chat. "
+                    "Bitte einen neuen Tutorlink ohne chat_id öffnen."
+                )
+            )
+        if hint_level < chat["current_hint_level"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Die Hilfestufe eines bestehenden Chats darf nicht sinken."
+            )
     else:
+        stack_context = task_to_stack_context(
+            task=task,
+            student_answer=ans1,
+            diagnosis_code=diagnosis,
+            question_text=question_text
+        )
         chat_id = CHAT_STORE.create_chat(
             question_id=qid,
             stack_context=model_dump_compat(
@@ -333,59 +535,140 @@ def start(
             hint_level=hint_level
         )
 
-    context_options = ContextOptions(
-        include_question_text=True,
-        include_student_answer=True,
-        include_diagnosis_code=True,
-        include_prt_feedback=True,
-        include_score=False,
-        include_learning_goals=False,
-        include_math_rules=False,
-        include_solution_steps=True,
-        include_final_answer=True,
-        include_chat_history=True
-    )
+    context_options = HTML_CONTEXT_OPTIONS
 
-    tutor_answer = generate_hint(
-        chat_id=chat_id,
-        hint_level=hint_level,
-        options=context_options,
-        selected_model=selected_model
-    )
+    try:
+        tutor_answer, messages = generate_hint(
+            chat_id=chat_id,
+            hint_level=hint_level,
+            options=context_options,
+            selected_model=selected_model
+        )
+    except HintGenerationError as exc:
+        return render_tutor_page(
+            request, chat_id, selected_model,
+            prompt_messages=exc.prompt_messages,
+            context_options=context_options,
+            error=exc.detail,
+            status_code=exc.status_code,
+            retry_hint_level=hint_level
+        )
 
+    CHAT_STORE.set_hint_level(chat_id, hint_level)
     CHAT_STORE.add_message(
         chat_id,
         "assistant",
         tutor_answer
     )
 
-    chat = CHAT_STORE.get_chat(chat_id)
-    history = CHAT_STORE.get_messages(
-        chat_id
+    return render_tutor_page(
+        request, chat_id, selected_model, prompt_messages=messages,
+        context_options=context_options
     )
 
-    return templates.TemplateResponse(
-        "tutor_page.html",
-        {
-            "request": request,
-            "chat_id": chat_id,
-            "question_id": qid,
-            "topic": task["topic"],
-            "subtopic": task["subtopic"],
-            "question_text": task[
-                "question_text"
-            ],
-            "student_answer": ans1,
-            "diagnosis_code": diagnosis,
-            "diagnosis_title": task[
-                "diagnoses"
-            ][diagnosis]["title"],
-            "hint_level": hint_level,
-            "model": selected_model,
-            "tutor_answer": tutor_answer,
-            "history": history,
-            "max_hint_level": 4
-        }
+
+@app.post("/tutor/{chat_id}/message", response_class=HTMLResponse)
+def tutor_message_page(
+    request: Request,
+    chat_id: str,
+    message: str = Form(""),
+    model: Optional[str] = Form(None)
+) -> HTMLResponse:
+    chat = get_chat_or_404(chat_id)
+    selected_model = select_model(model)
+
+    if not message.strip() or len(message) > MAX_CHAT_MESSAGE_LENGTH:
+        return render_tutor_page(
+            request, chat_id, selected_model,
+            error=(
+                "Bitte eine Nachricht mit 1 bis "
+                f"{MAX_CHAT_MESSAGE_LENGTH} Zeichen eingeben."
+            ),
+            status_code=400,
+            message_draft=message[:MAX_CHAT_MESSAGE_LENGTH]
+        )
+
+    CHAT_STORE.add_message(chat_id, "user", message.strip())
+    context_options = HTML_CONTEXT_OPTIONS
+    try:
+        tutor_answer, messages = generate_hint(
+            chat_id=chat_id,
+            hint_level=chat["current_hint_level"],
+            options=context_options,
+            selected_model=selected_model
+        )
+    except HintGenerationError as exc:
+        return render_tutor_page(
+            request, chat_id, selected_model,
+            prompt_messages=exc.prompt_messages,
+            context_options=context_options,
+            error=f"{exc.detail} Deine Nachricht wurde im Verlauf gespeichert.",
+            status_code=exc.status_code,
+            retry_hint_level=chat["current_hint_level"]
+        )
+
+    CHAT_STORE.add_message(chat_id, "assistant", tutor_answer)
+    return render_tutor_page(
+        request, chat_id, selected_model, prompt_messages=messages,
+        context_options=context_options
+    )
+
+
+@app.post("/tutor/{chat_id}/retry", response_class=HTMLResponse)
+def tutor_retry_page(
+    request: Request,
+    chat_id: str,
+    model: Optional[str] = Form(None),
+    hint_level: Optional[int] = Form(None)
+) -> HTMLResponse:
+    """Wiederholt nur die fehlgeschlagene Generierung: die gespeicherte
+    Nutzerfrage wird nicht erneut eingetragen, bei Erfolg wandert nur
+    die neue Assistant-Antwort in den Verlauf."""
+    chat = get_chat_or_404(chat_id)
+    selected_model = select_model(model)
+
+    if hint_level is None:
+        target_level = chat["current_hint_level"]
+    else:
+        target_level = hint_level
+
+        if not 1 <= target_level <= MAX_HINT_LEVEL:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Hilfestufe muss zwischen 1 und "
+                    f"{MAX_HINT_LEVEL} liegen."
+                )
+            )
+
+        if target_level < chat["current_hint_level"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Die Hilfestufe eines bestehenden Chats darf nicht sinken."
+            )
+
+    try:
+        tutor_answer, messages = generate_hint(
+            chat_id=chat_id,
+            hint_level=target_level,
+            options=HTML_CONTEXT_OPTIONS,
+            selected_model=selected_model
+        )
+    except HintGenerationError as exc:
+        return render_tutor_page(
+            request, chat_id, selected_model,
+            prompt_messages=exc.prompt_messages,
+            context_options=HTML_CONTEXT_OPTIONS,
+            error=exc.detail,
+            status_code=exc.status_code,
+            retry_hint_level=target_level
+        )
+
+    CHAT_STORE.set_hint_level(chat_id, target_level)
+    CHAT_STORE.add_message(chat_id, "assistant", tutor_answer)
+    return render_tutor_page(
+        request, chat_id, selected_model, prompt_messages=messages,
+        context_options=HTML_CONTEXT_OPTIONS
     )
 
 
@@ -417,6 +700,12 @@ def start_tutor(
                 detail="Chat nicht gefunden"
             )
 
+        if request.hint_level < chat["current_hint_level"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Die Hilfestufe eines bestehenden Chats darf nicht sinken."
+            )
+
         chat_id = request.chat_id
     else:
         chat_id = CHAT_STORE.create_chat(
@@ -436,7 +725,7 @@ def start_tutor(
             request.user_message
         )
 
-    tutor_answer = generate_hint(
+    tutor_answer, messages = generate_hint(
         chat_id=chat_id,
         hint_level=request.hint_level,
         options=request.context_options,
@@ -462,6 +751,10 @@ def start_tutor(
         "hint_level": request.hint_level,
         "model": selected_model,
         "hint": tutor_answer,
+        "prompt_messages": messages,
+        "context_options": model_dump_compat(
+            request.context_options
+        ),
         "history": CHAT_STORE.get_messages(
             chat_id
         )
@@ -494,17 +787,19 @@ def next_hint(
         request.model
     )
 
-    hint_level = CHAT_STORE.next_hint_level(
-        chat_id
+    hint_level = min(
+        chat["current_hint_level"] + 1,
+        MAX_HINT_LEVEL
     )
 
-    tutor_answer = generate_hint(
+    tutor_answer, messages = generate_hint(
         chat_id=chat_id,
         hint_level=hint_level,
         options=request.context_options,
         selected_model=selected_model
     )
 
+    CHAT_STORE.set_hint_level(chat_id, hint_level)
     CHAT_STORE.add_message(
         chat_id,
         "assistant",
@@ -517,6 +812,10 @@ def next_hint(
         "hint_level": hint_level,
         "model": selected_model,
         "hint": tutor_answer,
+        "prompt_messages": messages,
+        "context_options": model_dump_compat(
+            request.context_options
+        ),
         "history": CHAT_STORE.get_messages(
             chat_id
         )
@@ -549,6 +848,9 @@ def chat_message(
         request.model
     )
 
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Nachricht darf nicht leer sein")
+
     CHAT_STORE.add_message(
         chat_id,
         "user",
@@ -559,7 +861,7 @@ def chat_message(
         "current_hint_level"
     ]
 
-    tutor_answer = generate_hint(
+    tutor_answer, messages = generate_hint(
         chat_id=chat_id,
         hint_level=hint_level,
         options=request.context_options,
@@ -578,6 +880,10 @@ def chat_message(
         "hint_level": hint_level,
         "model": selected_model,
         "hint": tutor_answer,
+        "prompt_messages": messages,
+        "context_options": model_dump_compat(
+            request.context_options
+        ),
         "history": CHAT_STORE.get_messages(
             chat_id
         )

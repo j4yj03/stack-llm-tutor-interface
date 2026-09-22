@@ -1,6 +1,14 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+from app.config import (
+    MAX_CHAT_MESSAGE_LENGTH,
+    MAX_CONTEXT_QUESTION_TEXT,
+    MAX_HINT_LEVEL,
+    MAX_QUESTION_TEXT_LENGTH,
+    MAX_STUDENT_ANSWER_LENGTH
+)
 
 
 class ContextOptions(BaseModel):
@@ -25,12 +33,13 @@ class StackContext(BaseModel):
     question_text: str = Field(
         ...,
         min_length=1,
-        max_length=10000
+        # Preserve existing API payloads and persisted chats (previously 10000).
+        max_length=MAX_CONTEXT_QUESTION_TEXT
     )
     student_answer: str = Field(
         ...,
         min_length=1,
-        max_length=2000
+        max_length=MAX_STUDENT_ANSWER_LENGTH
     )
     diagnosis_code: Optional[str] = Field(
         None,
@@ -63,12 +72,12 @@ class TutorRequest(BaseModel):
     chat_id: Optional[str] = None
     user_message: Optional[str] = Field(
         None,
-        max_length=2000
+        max_length=MAX_CHAT_MESSAGE_LENGTH
     )
     hint_level: int = Field(
         1,
         ge=1,
-        le=4
+        le=MAX_HINT_LEVEL
     )
     model: Optional[str] = None
     context_options: ContextOptions = Field(
@@ -87,7 +96,7 @@ class UserChatRequest(BaseModel):
     message: str = Field(
         ...,
         min_length=1,
-        max_length=2000
+        max_length=MAX_CHAT_MESSAGE_LENGTH
     )
     model: Optional[str] = None
     context_options: ContextOptions = Field(
@@ -108,6 +117,8 @@ class TutorResponse(BaseModel):
     model: str
     hint: str
     history: List[ChatMessage]
+    prompt_messages: Optional[List[Dict[str, str]]] = None
+    context_options: Optional[Dict[str, bool]] = None
 
 
 class ChatHistoryResponse(BaseModel):

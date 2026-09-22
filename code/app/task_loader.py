@@ -4,7 +4,12 @@ from typing import Dict
 
 from jsonschema import Draft202012Validator
 
-from app.config import SCHEMA_PATH, TASK_DIR
+from app.config import (
+    MAX_CONTEXT_QUESTION_TEXT,
+    MAX_QUESTION_TEXT_LENGTH,
+    SCHEMA_PATH,
+    TASK_DIR
+)
 
 
 def load_json(path: Path) -> Dict:
@@ -60,6 +65,34 @@ def validate_task(
     )
 
 
+def validate_template(
+    task: Dict,
+    path: Path
+) -> None:
+    """Das optionale Textbaustein-Feld muss den {funktion}-Platzhalter
+    enthalten und muss zusammen mit der übertragenen Funktion in das
+    Kontextlimit passen."""
+
+    template = task.get("question_text_template")
+
+    if template is None:
+        return
+
+    if "{funktion}" not in template:
+        raise RuntimeError(
+            f"question_text_template in {path} muss "
+            "den Platzhalter {funktion} enthalten"
+        )
+
+    if len(template) + MAX_QUESTION_TEXT_LENGTH > MAX_CONTEXT_QUESTION_TEXT:
+        raise RuntimeError(
+            f"question_text_template in {path} ist zu lang: "
+            f"maximal {MAX_CONTEXT_QUESTION_TEXT - MAX_QUESTION_TEXT_LENGTH} "
+            "Zeichen, damit Textbaustein und übertragene Funktion zusammen "
+            "in den gespeicherten Aufgabentext passen"
+        )
+
+
 def load_all_tasks() -> Dict[str, Dict]:
     if not TASK_DIR.exists():
         raise RuntimeError(
@@ -72,6 +105,7 @@ def load_all_tasks() -> Dict[str, Dict]:
     for path in sorted(TASK_DIR.glob("*.json")):
         task = load_json(path)
         validate_task(task, schema, path)
+        validate_template(task, path)
 
         question_id = task["question_id"]
 

@@ -57,6 +57,7 @@ class HintPolicy:
                 "may_include",
                 "must_not_include",
                 "include_solution_steps",
+                "max_solution_steps",
                 "include_final_answer"
             }
 
@@ -66,6 +67,13 @@ class HintPolicy:
                 raise HintPolicyError(
                     f"Hilfestufe {level}: "
                     f"Felder fehlen: {sorted(missing)}"
+                )
+
+            limit = config["max_solution_steps"]
+            if limit is not None and (type(limit) is not int or limit < 0):
+                raise HintPolicyError(
+                    f"Hilfestufe {level}: max_solution_steps muss "
+                    "eine nichtnegative Ganzzahl oder null sein"
                 )
 
         return levels

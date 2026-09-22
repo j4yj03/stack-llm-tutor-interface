@@ -8,16 +8,16 @@
   "subtopic": "Kettenregel bei Exponentialfunktionen",
   "difficulty": "medium",
   "target_group": "Studierende der Ingenieurwissenschaften im mathematischen Grundlagenmodul",
-  "question_text": "Differenzieren Sie die Funktion f einmal nach x. f(x)=-5e^(x^2-2e^x).",
-  "question_latex": "Differenzieren Sie die Funktion \\( f \\) einmal nach \\( x \\). \\[ f(x)=-5e^{x^2-2e^x} \\]",
+  "question_text": "Differenzieren Sie die Funktion f einmal nach x.",
+  "question_text_template": "Gegeben ist die Funktion {funktion}. Differenzieren Sie f einmal nach x.",
+  "question_latex": "Differenzieren Sie die Funktion \\( f \\) einmal nach \\( x \\).",
   "given_data": {
-    "function": "-5*exp(x^2-2*exp(x))",
     "variable": "x"
   },
   "learning_goals": [
     "Die Kettenregel auf eine Exponentialfunktion anwenden.",
-    "Den inneren Exponenten x^2-2e^x korrekt ableiten.",
-    "Den konstanten Faktor -5 bei der Ableitung berücksichtigen."
+    "Den inneren Exponenten, also die innere Funktion der Verkettung, korrekt ableiten.",
+    "Den konstanten Faktor vor der Exponentialfunktion bei der Ableitung berücksichtigen."
   ],
   "prerequisites": [
     "Ableitung von e^x",
@@ -100,10 +100,10 @@
       ]
     },
     "wrong_derivative_inner_exp": {
-      "title": "Die Ableitung von -2e^x wurde falsch bestimmt.",
-      "description": "Beim Ableiten des inneren Exponenten wurde der Term -2e^x fehlerhaft behandelt.",
+      "title": "Die Ableitung des inneren Exponenten wurde falsch bestimmt.",
+      "description": "Beim Ableiten des inneren Exponenten wurde mindestens ein Term fehlerhaft behandelt.",
       "severity": "procedural",
-      "feedback_goal": "Die Ableitung von e^x und den Faktor -2 aktivieren.",
+      "feedback_goal": "Die Ableitung von e^x und die Konstantenfaktorregel aktivieren.",
       "concept_tags": [
         "Ableitung von e^x",
         "Konstantenfaktorregel",
@@ -120,13 +120,13 @@
       ]
     },
     "wrong_derivative_power": {
-      "title": "Die Ableitung von x^2 wurde falsch bestimmt.",
-      "description": "Beim Ableiten des inneren Exponenten wurde die Potenzregel für x^2 fehlerhaft angewendet.",
+      "title": "Die Ableitung des Potenzterms im Exponenten wurde falsch bestimmt.",
+      "description": "Beim Ableiten des inneren Exponenten wurde die Potenzregel für den Potenzterm fehlerhaft angewendet.",
       "severity": "procedural",
-      "feedback_goal": "Die Potenzregel für x^2 in Erinnerung rufen.",
+      "feedback_goal": "Die Potenzregel für den Potenzterm im Exponenten in Erinnerung rufen.",
       "concept_tags": [
         "Potenzregel",
-        "x^2",
+        "Potenzterm",
         "innerer Exponent"
       ],
       "avoid_phrases": [
@@ -140,14 +140,14 @@
       ]
     },
     "missing_constant_factor": {
-      "title": "Der konstante Faktor -5 fehlt.",
-      "description": "Die Kettenregel wurde möglicherweise angewendet, aber der Vorfaktor -5 wurde nicht berücksichtigt.",
+      "title": "Der konstante Faktor vor der Exponentialfunktion fehlt.",
+      "description": "Die Kettenregel wurde möglicherweise angewendet, aber der Vorfaktor wurde nicht berücksichtigt.",
       "severity": "procedural",
       "feedback_goal": "An die Konstantenfaktorregel erinnern.",
       "concept_tags": [
         "Konstantenfaktorregel",
         "Vorfaktor",
-        "-5"
+        "konstanter Faktor"
       ],
       "avoid_phrases": [
         "Die vollständige Lösung ist"
@@ -162,7 +162,7 @@
       "title": "Es liegt vermutlich ein Vorzeichenfehler vor.",
       "description": "Die Struktur der Ableitung ist teilweise erkennbar, aber ein Vorzeichen wurde wahrscheinlich falsch behandelt.",
       "severity": "procedural",
-      "feedback_goal": "Zum erneuten Prüfen der Vorzeichen im Exponenten und beim Faktor -5 anregen.",
+      "feedback_goal": "Zum erneuten Prüfen der Vorzeichen im Exponenten und beim konstanten Faktor anregen.",
       "concept_tags": [
         "Vorzeichen",
         "Kettenregel",

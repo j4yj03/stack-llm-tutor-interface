@@ -8,15 +8,15 @@
   "subtopic": "Produktregel",
   "difficulty": "medium",
   "target_group": "Studierende der Ingenieurwissenschaften im mathematischen Grundlagenmodul",
-  "question_text": "Bestimmen Sie die Ableitung von f(x)=x^2 sin(x).",
-  "question_latex": "Bestimmen Sie die Ableitung von \\( f(x)=x^2\\sin(x) \\).",
+  "question_text": "Bestimmen Sie die Ableitung von f.",
+  "question_text_template": "Gegeben ist die Funktion {funktion}. Bestimmen Sie die Ableitung von f.",
+  "question_latex": "Gegeben ist die Funktion \\( f \\). Bestimmen Sie die Ableitung von \\( f \\).",
   "given_data": {
-    "function": "x^2*sin(x)",
     "variable": "x"
   },
   "learning_goals": [
     "Die Produktregel auf ein Produkt zweier Funktionen anwenden.",
-    "Die Ableitungen von x^2 und sin(x) korrekt bestimmen.",
+    "Die Ableitungen der beiden Faktoren korrekt bestimmen.",
     "Die beiden Summanden der Produktregel korrekt zusammensetzen."
   ],
   "prerequisites": [
@@ -93,14 +93,13 @@
       ]
     },
     "wrong_derivative_sin": {
-      "title": "Die Ableitung von sin(x) wurde falsch verwendet.",
-      "description": "Die Produktregel wurde möglicherweise angewendet, aber die Ableitung von sin(x) wurde fehlerhaft bestimmt.",
+      "title": "Die Ableitung eines Faktors der Produktregel wurde falsch verwendet.",
+      "description": "Die Produktregel wurde möglicherweise angewendet, aber die Ableitung eines Faktors wurde fehlerhaft bestimmt.",
       "severity": "procedural",
-      "feedback_goal": "Die korrekte Ableitung von sin(x) aktivieren, ohne sofort die ganze Aufgabe zu lösen.",
+      "feedback_goal": "Die korrekte Ableitung der einzelnen Faktoren aktivieren, ohne sofort die ganze Aufgabe zu lösen.",
       "concept_tags": [
-        "sin",
-        "cos",
-        "trigonometrische Ableitung"
+        "trigonometrische Ableitung",
+        "Produktregel"
       ],
       "avoid_phrases": [
         "Die komplette Lösung ist"
@@ -114,12 +113,12 @@
     },
     "wrong_derivative_power": {
       "title": "Die Potenzregel wurde falsch angewendet.",
-      "description": "Die Ableitung von x^2 wurde vermutlich falsch bestimmt.",
+      "description": "Die Ableitung eines Potenzfaktors wurde vermutlich falsch bestimmt.",
       "severity": "procedural",
-      "feedback_goal": "Die Potenzregel für x^2 in Erinnerung rufen.",
+      "feedback_goal": "Die Potenzregel für den Potenzfaktor in Erinnerung rufen.",
       "concept_tags": [
         "Potenzregel",
-        "x^2"
+        "Potenzfaktor"
       ],
       "avoid_phrases": [
         "Das Endergebnis lautet"

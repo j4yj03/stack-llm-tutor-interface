@@ -59,6 +59,12 @@ LLM_TIMEOUT = int(
     os.getenv("LLM_TIMEOUT", "180")
 )
 
+# Wartezeit vor dem einen automatischen Wiederholungsversuch,
+# wenn das Gateway einen Chat-Aufruf mit HTTP 5xx abweist.
+LLM_RETRY_DELAY = float(
+    os.getenv("LLM_RETRY_DELAY", "2")
+)
+
 # Reasoning/Thinking der Modelle unterdrücken
 # (didaktische Hints, keine Token-Verschwendung).
 # 1/true = aus (Standard), 0/false = zulassen.
@@ -98,6 +104,22 @@ ALLOWED_MODELS.add(LLM_MODEL)
 
 MAX_STUDENT_ANSWER_LENGTH = int(
     os.getenv("MAX_STUDENT_ANSWER_LENGTH", "2000")
+)
+
+MAX_QUESTION_TEXT_LENGTH = int(
+    os.getenv("MAX_QUESTION_TEXT_LENGTH", "5000")
+)
+
+# Obergrenze des gespeicherten Aufgabentexts (JSON-API und Chat-Persistenz);
+# kompatibel zum bisher festen Limit von 10000 Zeichen. Der aus Textbaustein
+# und übertragener Funktion zusammengesetzte Text bleibt darunter.
+MAX_CONTEXT_QUESTION_TEXT = max(
+    10000,
+    MAX_QUESTION_TEXT_LENGTH
+)
+
+MAX_CHAT_MESSAGE_LENGTH = int(
+    os.getenv("MAX_CHAT_MESSAGE_LENGTH", "2000")
 )
 
 MAX_HISTORY_MESSAGES = int(

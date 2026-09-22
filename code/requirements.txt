@@ -1,6 +1,14 @@
-fastapi
-uvicorn[standard]
-jinja2
-jsonschema
-requests
-python-dotenv
+# Pinnt die aktuell installierten Versionen (Windows/Python 3.11),
+# damit Major-Updates (z. B. Starlette-API-Brueche) nicht still brechen.
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.53.0
+jinja2==3.1.6
+jsonschema==4.26.0
+requests==2.33.1
+python-dotenv==1.2.3
+python-multipart==0.0.32
+
+# Test-Abhaengigkeiten (TestClient benoetigt httpx)
+pytest
+httpx

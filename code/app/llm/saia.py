@@ -1,9 +1,11 @@
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from app import config
 from app.llm._http import post_json
 from app.llm.base import (
+    LLMConnectionError,
     LLMAuthError,
     LLMClient,
     LLMResponseError,
@@ -74,17 +76,58 @@ class SAIClient(LLMClient):
             "Authorization": f"Bearer {api_key}"
         }
 
-        data = post_json(
+        data = self._post_with_fallback(
             url,
             payload,
-            headers=headers,
-            timeout=config.LLM_TIMEOUT
+            headers
         )
 
         return self._extract_content(
             data,
             str(payload["model"])
         )
+
+    @classmethod
+    def _post_with_fallback(
+        cls,
+        url: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Ein Aufruf; schlägt er mit HTTP 5xx oder Netzwerkfehlern fehl,
+        wird einmalig ohne das vLLM-spezifische Feld wiederholt, sofern
+        vorhanden. Manche Gateways beantworten chat_template_kwargs
+        mit HTTP 500 und leerem Body (siehe AGENTS.md, Known Issue 8)."""
+        try:
+            return post_json(
+                url,
+                payload,
+                headers=headers,
+                timeout=config.LLM_TIMEOUT
+            )
+        except LLMConnectionError as exc:
+            fallback = {
+                key: value
+                for key, value in payload.items()
+                if key != "chat_template_kwargs"
+            }
+
+            if fallback == payload:
+                raise
+
+            logger.warning(
+                "SAIA-Aufruf fehlgeschlagen (%s); "
+                "Wiederholung ohne chat_template_kwargs.",
+                exc
+            )
+            time.sleep(config.LLM_RETRY_DELAY)
+
+            return post_json(
+                url,
+                fallback,
+                headers=headers,
+                timeout=config.LLM_TIMEOUT
+            )
 
     @staticmethod
     def _extract_content(

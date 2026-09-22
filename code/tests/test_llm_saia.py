@@ -51,8 +51,13 @@ class FakeResponse:
 
 
 class FakeSession:
+    """Liefert die angegebene Antwort; bei einer Liste wird sie als
+    Reihenfolge aufeinanderfolgender POST-Antworten zurückgegeben."""
+
     def __init__(self, response):
-        self.response = response
+        self.responses = (
+            list(response) if isinstance(response, list) else [response]
+        )
         self.calls = []
 
     def post(self, url, json=None, headers=None, timeout=None, verify=None):
@@ -65,7 +70,11 @@ class FakeSession:
                 "verify": verify
             }
         )
-        return self.response
+
+        if len(self.responses) > 1:
+            return self.responses.pop(0)
+
+        return self.responses[0]
 
 
 @pytest.fixture
@@ -74,6 +83,11 @@ def saia_key(monkeypatch):
         config,
         "LLM_API_KEY",
         "test-key-123"
+    )
+    monkeypatch.setattr(
+        config,
+        "LLM_RETRY_DELAY",
+        0
     )
 
 
@@ -231,6 +245,58 @@ def test_saia_http_500_maps_to_connection_error(
 
     with pytest.raises(LLMConnectionError):
         SAIClient().chat(messages=MESSAGES)
+
+    # Ein Fallback-Versuch ohne das vLLM-spezifische Feld, dann Abbruch.
+    assert len(session.calls) == 2
+    assert "chat_template_kwargs" in session.calls[0]["json"]
+    assert "chat_template_kwargs" not in session.calls[1]["json"]
+
+
+def test_saia_retries_successfully_without_thinking_flag(
+    monkeypatch,
+    saia_key
+):
+    session = FakeSession(
+        [
+            FakeResponse(status_code=500, text=""),
+            _client_response()
+        ]
+    )
+    monkeypatch.setattr(
+        http_module,
+        "SESSION",
+        session
+    )
+
+    answer = SAIClient().chat(messages=MESSAGES)
+
+    assert answer == "Hinweis: Kettenregel."
+    assert len(session.calls) == 2
+    assert "chat_template_kwargs" not in session.calls[1]["json"]
+
+
+def test_saia_no_retry_when_thinking_allowed(
+    monkeypatch,
+    saia_key
+):
+    monkeypatch.setattr(
+        config,
+        "LLM_DISABLE_THINKING",
+        False
+    )
+    session = FakeSession(
+        FakeResponse(status_code=500, text="")
+    )
+    monkeypatch.setattr(
+        http_module,
+        "SESSION",
+        session
+    )
+
+    with pytest.raises(LLMConnectionError):
+        SAIClient().chat(messages=MESSAGES)
+
+    assert len(session.calls) == 1
 
 
 def test_saia_empty_content_raises_response_error(

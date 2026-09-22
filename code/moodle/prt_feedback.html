@@ -1,0 +1,20 @@
+<!-- PRT-Feedback-Bausteine fuer den KI-Tutor: je PRT-Zweig genau EINEN Block
+     in den Feedback-CASText des Knotens einfuegen (erscheint als spezifisches
+     Feedback). Der Container ai-tutor-feedback ist die Lesestelle fuer
+     stack_js.get_content(); der unsichtbare Marker bindet die Diagnose an die
+     exakt bewertete Antwort ([[entityescape]]{#ans1#}[[/entityescape]]), nicht
+     an den sichtbaren Feedbacktext. -->
+
+<!-- Zweig: missing_chain_rule_inner_derivative -->
+<div id="[[quid id='ai-tutor-feedback'/]]">
+  <p><span class="ai-tutor-diagnosis" style="display: none;"
+      data-diagnosis="missing_chain_rule_inner_derivative">[[entityescape]]{#ans1#}[[/entityescape]]</span></p>
+  <p>Die innere Ableitung der Kettenregel fehlt.</p>
+</div>
+
+<!-- Zweig: wrong_derivative_inner_exp -->
+<div id="[[quid id='ai-tutor-feedback'/]]">
+  <p><span class="ai-tutor-diagnosis" style="display: none;"
+      data-diagnosis="wrong_derivative_inner_exp">[[entityescape]]{#ans1#}[[/entityescape]]</span></p>
+  <p>Die Ableitung von {@pp@} wurde vermutlich falsch bestimmt.</p>
+</div>

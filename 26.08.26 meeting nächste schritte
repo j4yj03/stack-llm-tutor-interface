@@ -22,4 +22,7 @@ Freitag 04.09.26
 -	common practice for storing history in db is using json
 -	connect to cortex via ssh
 -	Javascript for stack questions (StackJS https://moodle.hft-stuttgart.de/question/type/stack/doc/doc.php/Developer/STACK-JS.md?)
+	- https://docs.stack-assessment.org/en/Specialist_tools/STACK-JS/
 -	Testdata
+
+- 	https://docs.hpc.gwdg.de/services/ai-services/chat-ai/models/index.html

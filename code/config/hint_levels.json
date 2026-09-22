@@ -15,6 +15,7 @@
       "mehrere ausgerechnete Zwischenschritte"
     ],
     "include_solution_steps": false,
+    "max_solution_steps": 0,
     "include_final_answer": false
   },
   "2": {
@@ -32,6 +33,7 @@
       "vollständige Musterlösung"
     ],
     "include_solution_steps": false,
+    "max_solution_steps": 0,
     "include_final_answer": false
   },
   "3": {
@@ -48,6 +50,7 @@
       "abschließendes Endergebnis"
     ],
     "include_solution_steps": true,
+    "max_solution_steps": 3,
     "include_final_answer": false
   },
   "4": {
@@ -61,6 +64,7 @@
     ],
     "must_not_include": [],
     "include_solution_steps": true,
+    "max_solution_steps": null,
     "include_final_answer": true
   }
 }

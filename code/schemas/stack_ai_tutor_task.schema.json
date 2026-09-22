@@ -52,6 +52,10 @@
     "question_text": {
       "type": "string"
     },
+    "question_text_template": {
+      "type": "string",
+      "minLength": 1
+    },
     "question_latex": {
       "type": "string"
     },

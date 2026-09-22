@@ -1,0 +1,148 @@
+<p>Differenzieren Sie die Funktion \(f\) einmal nach {@v@}.</p>
+<p>\(\large f({@v@})={@p@}\)</p>
+<p>\(\large f'({@v@})=\,\) [[input:ans1]] [[validation:ans1]]</p>
+
+<div style="margin-top: 1em; padding: 0.8em; border: 1px solid #ccc; background: #f7f7f7;">
+  <strong>KI-Tutor</strong>
+  <p>Der Tutor-Link aktualisiert sich automatisch: bei jeder Eingabeänderung und,
+    sobald eine Eingabevalidierung abgeschlossen ist, auch mit der PRT-Diagnose.
+    Der Button ist ein Fallback, falls die automatische Aktualisierung in Ihrer
+    Moodle-/STACK-Konfiguration nicht greift. Dies bewertet die Antwort nicht
+    erneut. Ohne zuordenbare PRT-Diagnose gibt es nur einen allgemeinen Hinweis.</p>
+  <button type="button" id="[[quid id='ai-tutor-refresh'/]]">Tutor-Link aktualisieren</button>
+  <div id="[[quid id='ai-tutor-link'/]]" aria-live="polite">
+    Tutor-Link noch nicht bereit. Falls diese Meldung bleibt, STACK-JS-Konfiguration prüfen.
+  </div>
+</div>
+
+[[javascript]]
+const BASE_URL = "http://127.0.0.1:8000/start";
+const QID = "ableitung_kettenregel_exp_001";
+const MODEL = ""; // Leer: Backend-Standardmodell verwenden.
+// Nur die konkret instanziierte Funktion; die Satzstruktur liefert der
+// generische Textbaustein (question_text_template) der Backend-Aufgabe.
+const FUNKTION = [[jsstring]]f({#v#})={#p#}[[/jsstring]];
+const LINK_ID = "[[quid id='ai-tutor-link'/]]";
+// Lesestelle ist der Container im spezifischen Feedback (PRT-Zweig); er
+// existiert nur, wenn Moodle das PRT-Feedback an dieser Stelle anzeigt.
+const FEEDBACK_ID = "[[quid id='ai-tutor-feedback'/]]";
+
+function htmlEscape(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+stack_js.request_access_to_input("ans1", true, true).then((id) => {
+    const input = document.getElementById(id); // Nur der lokale Sandbox-Spiegel.
+    let revision = 0;
+    let pending = false;
+    let currentDiagnosis = "unknown_error";
+    let retryTimers = [];
+
+    function renderLink() {
+        const answer = input.value;
+        if (!answer.trim()) {
+            stack_js.switch_content(LINK_ID, "<p>Bitte zuerst eine Antwort eingeben.</p>");
+            return;
+        }
+        if (Array.from(FUNKTION).length > 5000) {
+            stack_js.switch_content(LINK_ID, "<p>Funktionsbeschreibung zu lang (maximal 5000 Zeichen). Kein Tutor-Link.</p>");
+            return;
+        }
+        const url = new URL(BASE_URL);
+        url.searchParams.set("qid", QID);
+        url.searchParams.set("diagnosis", currentDiagnosis);
+        url.searchParams.set("ans1", answer);
+        url.searchParams.set("hint_level", "1");
+        url.searchParams.set("funktion", FUNKTION);
+        if (MODEL) {
+            url.searchParams.set("model", MODEL);
+        }
+        const safeUrl = htmlEscape(url.href);
+        stack_js.switch_content(LINK_ID,
+            '<p><a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">KI-Tutor &ouml;ffnen (neuer Tab)</a></p>'
+            + '<p>PRT-Diagnose: <code>' + htmlEscape(currentDiagnosis) + '</code></p>'
+            + '<details><summary>Linkdetails / Klartext-URL</summary>'
+            + '<p>Falls der Link nicht klickbar ist: diese URL im Browser &ouml;ffnen.</p>'
+            + '<code style="overflow-wrap: anywhere;">' + safeUrl + '</code></details>');
+    }
+
+    // Ein Lesevorgang. Ubernimmt nur einen exakt zur aktuellen Antwort
+    // passenden Marker und setzt eine bestehende Zuordnung nie selbst zurueck.
+    async function probe() {
+        if (pending) {
+            return;
+        }
+        pending = true;
+        const requestedRevision = revision;
+        const answer = input.value;
+        try {
+            const html = await stack_js.get_content(FEEDBACK_ID);
+            if (revision !== requestedRevision) {
+                return;
+            }
+            const feedback = document.createElement("template");
+            feedback.innerHTML = html || ""; // Inertes Fragment, nicht das Moodle-DOM.
+            const markers = feedback.content.querySelectorAll(".ai-tutor-diagnosis");
+            if (markers.length === 1) {
+                const marker = markers[0];
+                const code = marker.getAttribute("data-diagnosis") || "";
+                // Nur exakte Textbindung, keine mathematische Bewertung in JavaScript.
+                if (marker.textContent === answer && code.length > 0 && code.length <= 100
+                        && !/[^a-z0-9_]/.test(code)) {
+                    currentDiagnosis = code;
+                    renderLink();
+                }
+            }
+        } catch {
+            console.warn("KI-Tutor: PRT-Feedback nicht lesbar; unknown_error bleibt. Bei Wiederholung Seite neu laden.");
+        } finally {
+            pending = false;
+        }
+    }
+
+    // Begrenzte Nachfragen nach spaet eintreffendem Feedback; bewusst kein
+    // Dauer-Polling. Neue Trigger löschen ausstehende Nachfragen (Debouncing).
+    function scheduleProbes(delays) {
+        for (const timer of retryTimers) {
+            clearTimeout(timer);
+        }
+        retryTimers = delays.map((delay) => setTimeout(probe, delay));
+    }
+
+    // Jede Eingabeaenderung baut den Link automatisch neu und invalidiert die
+    // alte Diagnose, solange STACK die neue Antwort noch nicht bewertet hat.
+    input.addEventListener("change", () => {
+        revision += 1;
+        currentDiagnosis = "unknown_error";
+        renderLink();
+        scheduleProbes([800, 3000]);
+    });
+
+    // Nach abgeschlossener Eingabevalidierung ("instant validation") trifft das
+    // PRT-Feedback kurz danach ein; dann die Diagnose automatisch uebernehmen.
+    try {
+        stack_js.register_validation_state_listener("ans1", (complete) => {
+            if (!complete) {
+                return;
+            }
+            const finished = probe();
+            scheduleProbes([1200, 3500]);
+            return finished;
+        }, true);
+    } catch (error) {
+        console.warn("KI-Tutor: Automatische Diagnoseaktualisierung nicht verfuegbar; Aktualisieren-Button nutzen.");
+    }
+
+    stack_js.register_external_button_listener("[[quid id='ai-tutor-refresh'/]]", () => {
+        const finished = probe();
+        scheduleProbes([1200, 3500]);
+        return finished;
+    });
+
+    renderLink();
+    return probe();
+}).catch(() => {
+    stack_js.switch_content(LINK_ID, "<p>Tutor-Link nicht verf&uuml;gbar. STACK-JS-Konfiguration und Eingabe ans1 pr&uuml;fen.</p>");
+});
+[[/javascript]]

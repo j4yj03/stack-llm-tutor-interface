@@ -130,6 +130,8 @@ Existing endpoints:
 GET  /health
 GET  /tasks
 GET  /start
+POST /tutor/{chat_id}/message
+POST /tutor/{chat_id}/retry
 POST /api/tutor/start
 POST /api/tutor/{chat_id}/next-hint
 POST /api/tutor/{chat_id}/message
@@ -151,6 +153,8 @@ ans1
 hint_level
 model
 chat_id
+question_text (optional, full instantiated Moodle task text)
+funktion (optional, instantiated function; composed with question_text_template)
 ```
 
 Responsibilities:
@@ -164,6 +168,37 @@ Responsibilities:
 7. generate a hint
 8. store the assistant response
 9. render `tutor_page.html`
+
+`question_text` (full text) and `funktion` (composed with the task's
+`question_text_template`) are mutually exclusive. When the resulting task text
+differs from the local `question_text`, it is a Moodle variant: persist the
+supplied context and use it for display and all subsequent hints/messages.
+The local `model_solution` is example data of a fixed variant and must never
+be attached to a variant. `question_text`, `question_text_template` and
+`given_data` are generic; the instantiated function always comes from
+Moodle/STACK. An existing chat must reject changed task/answer/diagnosis
+parameters and lower hint levels.
+
+#### HTML chat and prompt debugging
+
+`POST /tutor/{chat_id}/message` accepts HTML form fields `message` and `model`,
+keeps the current hint level, and re-renders the tutor page without JavaScript.
+Form parsing requires the pinned `python-multipart` dependency.
+Invalid messages do not enter the history. On LLM failure the submitted message
+remains stored and the page shows a safe error plus the attempted prompt.
+
+`POST /tutor/{chat_id}/retry` re-runs only a failed generation: it never
+re-stores the user question, targets the attempted hint level (form field,
+never below the stored level), and on success stores just the new assistant
+response. The failed page renders the retry inline next to the unanswered
+user question, or in the error box when no chat question exists (typical
+`/start` failures).
+
+`generate_hint` returns `(answer, messages)`; display the actual messages passed
+to the client, never rebuild a debug prompt after saving the new response.
+JSON generation endpoints additionally return optional `prompt_messages`.
+This debug view is for development, not an authenticated production feature or
+a durable request log. History endpoints keep their existing format.
 
 ---
 
@@ -198,6 +233,9 @@ Current limits include:
 
 ```text
 MAX_STUDENT_ANSWER_LENGTH
+MAX_QUESTION_TEXT_LENGTH
+MAX_CONTEXT_QUESTION_TEXT
+MAX_CHAT_MESSAGE_LENGTH
 MAX_HISTORY_MESSAGES
 MAX_HINT_LEVEL
 ```
@@ -328,12 +366,19 @@ max_words
 may_include
 must_not_include
 include_solution_steps
+max_solution_steps
 include_final_answer
 ```
 
 All levels from `1` through `MAX_HINT_LEVEL` must exist [5].
 
 Hint levels are generic and must not encode task-specific mathematical content.
+
+`max_solution_steps` is required: `0`, `0`, `3`, `null` for levels 1 through 4
+(`null` means all). Migrate custom policies explicitly; no task/DB format change.
+The prompt builder limits the step list and stops before a step containing the
+literal final answer when final-answer permission is missing. This is not a
+symbolic equivalence check or an output-level solution detector.
 
 Expected progression:
 
@@ -857,12 +902,14 @@ Belongs in `tasks/*.json`:
 question ID
 topic
 subtopic
-question text
+question text (generic instruction)
+question text template (generic instruction with {funktion})
+given_data (generic metadata, no function values)
 learning goals
 mathematical rules
 diagnoses
-model solution
-verified solution steps
+model solution (local example)
+verified solution steps (local example)
 ```
 
 ### Generic tutor policy
@@ -927,18 +974,18 @@ Avoid persisting personal student data for reproducibility.
 1. The native HTW Ollama API was shut down on 2026-09-01; the GWDG SAIA platform is the replacement
 2. SAIA enforces a rate limit of roughly 100 requests per hour
 3. SAIA API keys expire after 6 months and must be rotated via the SAIA dashboard
-4. The web template may not yet expose the full chat workflow
+4. HTML chat and prompt debugging are available without JavaScript; authentication, request idempotency and production debug-access controls remain open
 5. STACK `/render`, `/validate`, and `/grade` integration is not yet implemented
 6. Output-level solution-disclosure detection is incomplete
 7. SQLite is sufficient for the prototype but not intended for high-concurrency production deployment
-8. `chat_template_kwargs.enable_thinking` is a vLLM-specific extension; if the gateway rejects it, set `LLM_DISABLE_THINKING=0`
+8. `chat_template_kwargs.enable_thinking` is a vLLM-specific extension. Observed on 2026-09-21: the SAIA gateway returned HTTP 500 with an empty body for chat requests containing this field, plus sporadic HTTP 500s for requests without it. The SAIA client automatically retries once without the field (`LLM_RETRY_DELAY` backoff) and `main.py` logs the upstream cause server-side. If errors persist, check the SAIA dashboard, switch `LLM_MODEL`, or set `LLM_DISABLE_THINKING=0` to skip the field entirely (the model then spends tokens on reasoning first; without thinking suppression, watch for empty `content`)
 
 ---
 
 ## Prioritized Work Plan
 
 1. Keep local Ollama available as a development fallback
-2. Extend the tutor page with chat input and visible history
+2. Validate the STACK-JS field snippets on the deployed Moodle/STACK installation
 3. Integrate STACK API rendering, validation, and grading
 4. Build a reproducible set of tasks and typical incorrect answers
 5. Add evaluation logging

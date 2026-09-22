@@ -2,6 +2,8 @@
 <html lang="de">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,">
     <title>AI Tutor</title>
 
     <style>
@@ -11,6 +13,7 @@
             margin: 2rem auto;
             line-height: 1.5;
             padding: 0 1rem;
+            overflow-wrap: anywhere;
         }
 
         .box {
@@ -24,6 +27,51 @@
         .hint {
             border-left: 5px solid #2b7cff;
             background: #f1f6ff;
+        }
+
+        .chat-history {
+            list-style: none;
+            padding: 0;
+        }
+
+        .chat-message {
+            padding: 0.8rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 6px;
+            border-left: 5px solid #777;
+            background: #fff;
+        }
+
+        .chat-message.hint {
+            border-left-color: #2b7cff;
+            background: #f1f6ff;
+        }
+
+        .message-content,
+        .question-text {
+            white-space: pre-wrap;
+        }
+
+        textarea {
+            display: block;
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 7rem;
+            margin: 0.5rem 0 1rem;
+            padding: 0.75rem;
+            font: inherit;
+            border: 1px solid #777;
+            border-radius: 6px;
+            resize: vertical;
+        }
+
+        .error {
+            border-left: 5px solid #a12727;
+            background: #fff4f4;
+        }
+
+        .retry-form {
+            margin-top: 0.75rem;
         }
 
         code,
@@ -58,7 +106,8 @@
             background: #1f5fc4;
         }
 
-        .hint-button:focus {
+        .hint-button:focus,
+        textarea:focus {
             outline: 3px solid rgba(43, 124, 255, 0.3);
             outline-offset: 2px;
         }
@@ -69,9 +118,24 @@
 
 <h1>AI Tutor</h1>
 
+{% if error %}
+<div class="box error" role="alert">
+    <h2>Anfrage nicht abgeschlossen</h2>
+    <p>{{ error }}</p>
+    {% if retry_in_error %}
+        <form id="retry-form" class="retry-form" method="post"
+              action="{{ request.url_for('tutor_retry_page', chat_id=chat_id) }}">
+            <input type="hidden" name="model" value="{{ model }}">
+            <input type="hidden" name="hint_level" value="{{ retry_hint_level }}">
+            <button type="submit" class="hint-button">Erneut versuchen</button>
+        </form>
+    {% endif %}
+</div>
+{% endif %}
+
 <div class="box">
     <h2>Aufgabe</h2>
-    <p>{{ question_text }}</p>
+    <p class="question-text">{{ question_text }}</p>
 </div>
 
 <div class="box">
@@ -84,13 +148,46 @@
     <p>
         <strong>{{ diagnosis_code }}</strong>
     </p>
-    <p>{{ diagnosis_title }}</p>
+    {% if diagnosis_title %}
+        <p>{{ diagnosis_title }}</p>
+    {% else %}
+        <p>Übermittelt wurde der Diagnosecode. Ein passender PRT-Feedbacktext liegt nicht vor.</p>
+    {% endif %}
 </div>
 
-<div class="box hint">
-    <h2>Hinweis</h2>
-    <p>{{ tutor_answer }}</p>
-</div>
+<section class="box" aria-labelledby="chat-heading">
+    <h2 id="chat-heading">Chat mit dem Tutor</h2>
+    <ol class="chat-history" aria-label="Chatverlauf">
+        {% for message in history if message.role in ["user", "assistant"] %}
+            <li class="chat-message{% if message.role == 'assistant' %} hint{% endif %}">
+                <strong>{{ "Du" if message.role == "user" else "Tutor" }}</strong>
+                <p class="message-content">{{ message.content }}</p>
+                {% if retry_inline and loop.last and message.role == "user" %}
+                    <form id="retry-form" class="retry-form" method="post"
+                          action="{{ request.url_for('tutor_retry_page', chat_id=chat_id) }}">
+                        <input type="hidden" name="model" value="{{ model }}">
+                        <input type="hidden" name="hint_level" value="{{ retry_hint_level }}">
+                        <button type="submit" class="hint-button">Erneut versuchen</button>
+                    </form>
+                {% endif %}
+            </li>
+        {% else %}
+            <li>Noch keine Nachrichten vorhanden.</li>
+        {% endfor %}
+    </ol>
+
+    <form id="chat-form" method="post"
+          action="{{ request.url_for('tutor_message_page', chat_id=chat_id) }}">
+        <input type="hidden" name="model" value="{{ model }}">
+        <label for="message"><strong>Deine Rückfrage</strong></label>
+        <textarea id="message" name="message" rows="4" required
+                  maxlength="{{ max_chat_message_length }}"
+                  aria-describedby="chat-help">{{ message_draft }}</textarea>
+        <p id="chat-help">Bis zu {{ max_chat_message_length }} Zeichen. Eine Rückfrage bleibt auf
+            Hilfestufe {{ hint_level }}. Nach dem Senden lädt die Seite mit der Antwort neu.</p>
+        <button type="submit" class="hint-button">Nachricht senden</button>
+    </form>
+</section>
 
 <div class="box">
     <h2>Weitere Hilfe</h2>
@@ -100,8 +197,12 @@
         <strong>{{ hint_level }}</strong>
     </p>
 
-    {% if hint_level < 4 %}
-        <form method="get" action="/start">
+    {% if hint_level < max_hint_level %}
+        <form id="next-hint-form" method="get" action="{{ request.url_for('start') }}">
+            <input type="hidden"
+                   name="chat_id"
+                   value="{{ chat_id }}">
+
             <input type="hidden"
                    name="qid"
                    value="{{ question_id }}">
@@ -137,7 +238,21 @@
 
 <details>
     <summary>Debug: erzeugter Prompt</summary>
-    <pre>{{ prompt }}</pre>
+    <p>Modell: <code>{{ model }}</code>. Chat: <code>{{ chat_id }}</code>.</p>
+    {% if context_options is not none %}
+        <p>Kontextoptionen des letzten Aufrufs:</p>
+        <pre id="debug-context-options">{{ context_options }}</pre>
+    {% endif %}
+    {% if prompt is not none %}
+        <p>Die folgenden Rollennachrichten wurden für den letzten LLM-Aufruf aufgebaut,
+            vor dem Speichern der neuen Tutorantwort. Bei Dienstfehlern ist dies der
+            Prompt des fehlgeschlagenen Versuchs.</p>
+        <pre id="debug-prompt">{{ prompt }}</pre>
+    {% else %}
+        <p>Für diese Anfrage wurde kein neuer Prompt erzeugt.</p>
+    {% endif %}
+    <p>Entwicklungsansicht: Enthält Aufgaben- und Chatdaten. Vor einem produktiven
+        Einsatz mit Studierenden entfernen oder den Zugriff einschränken.</p>
 </details>
 
 </body>

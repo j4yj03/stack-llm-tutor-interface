@@ -14,9 +14,9 @@ gegen `schemas/stack_ai_tutor_task.schema.json` validiert.
 ## Aufbau (Kurzfassung)
 
 - Identität & Einordnung: `question_id`, `status`, `language`, `topic`, `subtopic`, `difficulty`
-- Inhalt: `question_text`, `question_latex`, `given_data`, `learning_goals`, `prerequisites`
-- STACK-Bindung: `student_inputs` (z. B. `ans1` als `algebraic_expression`)
-- Musterlösung: `model_solution.final_answer` + `solution_steps` mit `step_id`, `description`, `formula`
+- Inhalt: `question_text` (generische Anweisung ohne konkrete Funktion), `question_text_template` (Satzbaustein mit `{funktion}`-Platzhalter), `question_latex`, `given_data` (generisch, z. B. nur `variable`), `learning_goals`, `prerequisites`
+- STACK-Bindung: `student_inputs` (z. B. `ans1` als `algebraic_expression`); die konkret instanziierte Funktion kommt aus Moodle/STACK (`funktion`-Parameter)
+- Musterlösung: `model_solution.final_answer` + `solution_steps` mit `step_id`, `description`, `formula` — **lokale Beispieldaten eines festen Beispiels**, werden bei Moodle-Varianten nie verwendet
 - Diagnosen: `diagnoses` mit PRT-Fehlercodes (incl. `unknown_error` als Pflicht-Fallback), je Eintrag `severity`, `feedback_goal`, `avoid_phrases`, `allowed_hint_levels`
 - Tutor-Policy: `tutor_policy` (Ton, Wortgrenzen, verbotene Verhaltensweisen)
 - Stufen-Beispiele: `hint_levels` (aufgabenspezifisch, ergänzt die generische `config/hint_levels.json`)
