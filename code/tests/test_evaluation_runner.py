@@ -155,6 +155,22 @@ def test_transport_ambiguity_is_kept_unclassified(tmp_path):
     assert all(record["outcome"] == "transport_ambiguous" for record in records)
 
 
+def test_ambiguous_retry_blocks_all_further_retries(tmp_path):
+    run_dir = make_run_dir(tmp_path)
+    clock = ManualClock()
+    Runner(run_dir, transport=fake_transport_factory(status=500, body={"detail": "x"}),
+           sleep=clock.sleep, clock=clock.clock).run(execute_live=True)
+    Runner(run_dir, transport=fake_transport_factory(error="timeout"),
+           sleep=clock.sleep, clock=clock.clock).run(
+               execute_live=True, resume=True, retry_failed=True)
+    transport = fake_transport_factory(body=success_body())
+    stats = Runner(run_dir, transport=transport, sleep=clock.sleep, clock=clock.clock).run(
+        execute_live=True, resume=True, retry_failed=True,
+    )
+    assert stats["dispatched"] == 0
+    assert transport.calls == []
+
+
 def test_budget_paces_before_dispatch(tmp_path):
     run_dir = make_run_dir(tmp_path)
     transport = fake_transport_factory(body=success_body())

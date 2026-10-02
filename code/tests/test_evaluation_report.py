@@ -167,6 +167,35 @@ def test_review_export_excludes_mock_and_blinds_profile(run_dir):
     assert "diagnosis" in profile_ids
 
 
+def test_repeated_export_keeps_edited_ratings_and_imports_utf8_bom(run_dir):
+    export_review_packet(run_dir)
+    path = run_dir / "reviews" / "review_packet.csv"
+    rows = read_csv(path, delimiter=";")
+    rows[0].update(rater_id="expert-1", hilfreichkeit_naechster_schritt="4")
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RFC_REVIEW_COLUMNS, delimiter=";")
+        writer.writeheader()
+        writer.writerows(rows)
+    assert import_review_ratings(run_dir, path)["imported"] == 1
+    export_review_packet(run_dir)
+    preserved = read_csv(path, delimiter=";")
+    assert preserved[0]["rater_id"] == "expert-1"
+    assert preserved[0]["hilfreichkeit_naechster_schritt"] == "4"
+    assert import_review_ratings(run_dir, path)["imported"] == 0
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="entfallen"):
+        export_review_packet(run_dir, limit=0)
+    assert path.read_bytes() == original
+
+
+def test_rating_import_rejects_missing_required_headers(run_dir):
+    export_review_packet(run_dir)
+    path = run_dir / "wrong-header.csv"
+    path.write_text("unknown;rater_id\nvalue;expert\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Bewertungsspalten fehlen"):
+        import_review_ratings(run_dir, path)
+
+
 def test_review_import_validates_and_report_aggregates(run_dir):
     exported = export_review_packet(run_dir)
     assert exported["packet_rows"] == 2

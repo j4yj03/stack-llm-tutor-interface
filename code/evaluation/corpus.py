@@ -155,6 +155,8 @@ def profile_requires(
         return "diagnosis_code fehlt im Fall"
     if profile.include_prt_feedback and not case.tutor_context.prt_feedback:
         return "prt_feedback fehlt im Fall"
+    if profile.include_score and case.tutor_context.score is None:
+        return "score fehlt im Fall"
     if profile.include_learning_goals and (
         not case.tutor_context.learning_goals
     ):
@@ -165,6 +167,8 @@ def profile_requires(
         case.evaluation_only.reference.solution_steps
     ):
         return "verifizierte solution_steps fehlen in der Referenz"
+    if profile.include_solution_steps and not case.evaluation_only.reference.final_answer:
+        return "final_answer als Guard fuer solution_steps fehlt in der Referenz"
     if profile.include_final_answer and not (
         case.evaluation_only.reference.final_answer
     ):

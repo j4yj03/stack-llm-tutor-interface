@@ -121,7 +121,11 @@ Stufe 4 auswaehlen; niedrige Stufen bleiben trotz gesetzter Checkbox gesperrt.
 Ratingboegen sind ohne Modell-/Profilspalten. Fuer eine wirklich blinde
 Expertenbewertung nicht vorab die Profilansichten zeigen und
 `review_mapping.json` nicht weitergeben. Leere Felder bleiben fehlend;
-fachliche Fehler, Stufeneinhaltung und Sprachqualitaet werden getrennt
+ein erneuter Export erhaelt bereits ausgefuellte Bewertungsfelder.
+Der Import akzeptiert UTF-8-CSVs mit und ohne BOM, Pflichtspalten werden
+geprueft. Fuer Schritteprofile ist die Referenzendlösung als Guard Pflicht,
+fuer aktivierten Score ein belegter Wert (auch `0.0` ist gueltig).
+Fachliche Fehler, Stufeneinhaltung und Sprachqualitaet werden getrennt
 berichtet. Keine Endloesung erkannt bedeutet `inconclusive`, nie ein
 Abwesenheitsbeweis. Demoantworten und ihre Checks/Ratings sind aus
 Forschungskennzahlen ausgeschlossen.

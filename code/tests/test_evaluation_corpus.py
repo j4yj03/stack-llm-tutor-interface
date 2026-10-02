@@ -325,6 +325,18 @@ def test_request_payload_supplies_guard_answer_with_steps():
     assert payload["model"] == "some-model"
 
 
+def test_steps_profile_requires_the_guard_reference_and_score_requires_a_value():
+    cases, profiles, _ = load_default_fixtures()
+    case = cases[0].model_copy(deep=True)
+    case.evaluation_only.reference.final_answer = None
+    assert "Guard" in case_profile_eligible(case, profiles.by_id()["steps"], True)
+    score_profile = profiles.by_id()["base"].model_copy(update={"include_score": True})
+    case.tutor_context.score = None
+    assert case_profile_eligible(case, score_profile, True) == "score fehlt im Fall"
+    case.tutor_context.score = 0.0
+    assert case_profile_eligible(case, score_profile, True) is None
+
+
 def test_plan_is_deterministic_and_controls_are_appended():
     cases, profile_set, experiment = load_default_fixtures()
     jobs_a, exclusions_a = build_plan(experiment, cases, DATA_DIR / "context_profiles.json")

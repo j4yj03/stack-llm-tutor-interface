@@ -196,6 +196,27 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
     review_dir = run_dir / REVIEW_DIR
     review_dir.mkdir(parents=True, exist_ok=True)
     packet_path = review_dir / "review_packet.csv"
+    # Re-running a notebook must not erase edits in the exported rating sheet.
+    if packet_path.exists():
+        with packet_path.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter=";")
+            if "review_id" not in (reader.fieldnames or []):
+                raise ValueError("Vorhandener Bewertungsbogen hat keine review_id-Spalte.")
+            edited: Dict[str, List[dict]] = defaultdict(list)
+            editable_fields = ["rater_id", "begruendung"] + LIKERT_FIELDS + CHOICE_FIELDS
+            for row in reader:
+                if any((row.get(field) or "").strip() for field in editable_fields):
+                    edited[row["review_id"]].append(row)
+        if set(edited) - set(mapping):
+            raise ValueError(
+                "Ausgefuellte Bewertungen wuerden beim Export entfallen; "
+                "bestehenden Bogen getrennt aufbewahren und importieren."
+            )
+        packet_rows = [
+            {**row, **{field: old.get(field, "") for field in editable_fields}}
+            for row in packet_rows
+            for old in edited.get(row["review_id"], [{}])
+        ]
     with open(packet_path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle, fieldnames=RFC_REVIEW_COLUMNS, delimiter=";"
@@ -234,8 +255,11 @@ def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
         (record["review_id"], record["rater_id"])
         for record in ratings
     }
-    with open(ratings_csv, "r", encoding="utf-8", newline="") as handle:
+    with open(ratings_csv, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle, delimiter=";")
+        missing_columns = {"review_id", "rater_id"} - set(reader.fieldnames or [])
+        if missing_columns:
+            raise ValueError("Bewertungsspalten fehlen: " + ", ".join(sorted(missing_columns)))
         for line_number, row in enumerate(reader, start=2):
             review_id = (row.get("review_id") or "").strip()
             if not review_id or not any(

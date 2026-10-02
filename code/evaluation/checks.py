@@ -246,6 +246,8 @@ def run_checks(
         required_parts.append(
             ("prt_feedback", case.tutor_context.prt_feedback)
         )
+    if profile.include_score and case.tutor_context.score is not None:
+        required_parts.append(("score", "STACK-SCORE:\n" + str(case.tutor_context.score)))
     if profile.include_learning_goals and case.tutor_context.learning_goals:
         required_parts.append(
             ("learning_goals", case.tutor_context.learning_goals[0])

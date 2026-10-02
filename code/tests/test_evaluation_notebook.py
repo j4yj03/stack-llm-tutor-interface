@@ -169,6 +169,18 @@ def test_notebook_run_all_is_offline_from_its_own_directory(monkeypatch, tmp_pat
     assert all(cell.get("execution_count") is None for cell in document["cells"])
 
 
+def test_analysis_uses_snapshots_instead_of_original_files(monkeypatch, tmp_path):
+    execute_cells(monkeypatch, tmp_path)
+    namespace, _ = execute_cells(monkeypatch, tmp_path, {
+        "MODE": "analyze", "CORPUS_FILE": tmp_path / "missing-corpus.jsonl",
+        "PROFILES_FILE": tmp_path / "missing-profiles.json", "CASE_IDS": ["gone-case"],
+        "PROFILE_IDS": ["gone-profile"],
+    })
+    assert len(namespace["generations"]) == 24
+    assert namespace["is_demo"] is True
+    assert namespace["case_selector"].disabled
+
+
 def test_mocked_live_notebook_supports_ratings_and_paired_analysis(monkeypatch, tmp_path):
     calls = []
 

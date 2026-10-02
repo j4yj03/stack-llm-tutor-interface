@@ -671,10 +671,10 @@ class Runner:
 
 
 def _best_outcome(current: Optional[str], candidate: str) -> str:
-    """Beste Auswertung eines Jobs über alle Versuche (success dominiert)."""
+    """Success dominates; otherwise an ambiguous attempt blocks further retries."""
     order = [
-        "success", "http_error", "rate_limited",
-        "server_error", "transport_error", "transport_ambiguous",
+        "success", "transport_ambiguous", "http_error", "rate_limited",
+        "server_error", "transport_error",
         "pending",
     ]
     ranking = {name: rank for rank, name in enumerate(order)}

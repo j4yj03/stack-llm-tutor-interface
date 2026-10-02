@@ -139,6 +139,18 @@ def test_missing_real_prompt_is_inconclusive(prompt_messages):
         assert record["reason"]
 
 
+def test_score_profile_requires_an_actual_score_section():
+    profile = PROFILES["steps"].model_copy(update={"include_score": True})
+    generation = make_generation("Pruefe die innere Ableitung.")
+    records = run_checks(generation, CASE, profile, POLICY)
+    required = check_by_id(records, "prompt_required_content")
+    assert required["status"] == "fail"
+    assert "score" in required["evidence"]["missing"]
+    generation["returned"]["prompt_messages"][-1]["content"] += "\nSTACK-SCORE:\n0.0"
+    records = run_checks(generation, CASE, profile, POLICY)
+    assert check_by_id(records, "prompt_required_content")["status"] == "pass"
+
+
 @pytest.mark.parametrize("level", [3, 4])
 @pytest.mark.parametrize("include_final", [False, True])
 def test_prompt_final_answer_needs_both_permissions(level, include_final):

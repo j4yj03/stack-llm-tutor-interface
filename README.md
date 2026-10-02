@@ -140,5 +140,11 @@ installieren und Uvicorn neu starten, sofern kein automatischer Reload läuft.
 
 ## Forschungsprojekt
 
+Die [Jupyter-Testbench](code/evaluation/notebooks/testbench.ipynb) bietet
+Beispielaufgaben, frei waehlbare Kontextfelder, Tutor-API-Laeufe und die
+Auswertung der Hinweise mit Checks, Bewertungsformularen und Diagrammen.
+Sie startet standardmaessig als Offline-Demo ohne LLM-Aufrufe.
+Installation und Forschungsgrenzen: [Evaluationssuite](code/evaluation/README.md).
+
 Dieses Projekt ist Teil einer Masterarbeit an der HTW Berlin:
 *„Entwicklung eines KI-gestützten Tutors für Moodle-STACK-Aufgaben in mathematischen Grundlagenmodulen"*
