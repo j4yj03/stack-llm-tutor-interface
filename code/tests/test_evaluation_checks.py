@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from evaluation.checks import (
+    _extract_candidate_expressions,
     load_policy,
     normalize_expression,
     run_checks,
@@ -119,6 +120,78 @@ def test_prompt_required_and_guard_checks():
     assert "final_answer" in guard["evidence"]["leaked"]
 
 
+@pytest.mark.parametrize("prompt_messages", [
+    None, [], {}, [None],
+    [{"role": "system", "content": "policy"}],
+    [{"role": "user", "content": None}],
+    [{"role": "user", "content": "  "}],
+])
+def test_missing_real_prompt_is_inconclusive(prompt_messages):
+    generation = make_generation("Ein Hinweis.")
+    generation["returned"].pop("prompt_messages")
+    if prompt_messages is not None:
+        generation["returned"]["prompt_messages"] = prompt_messages
+    records = run_checks(generation, CASE, PROFILES["steps"], POLICY)
+    for check_id in ("prompt_required_content", "prompt_solution_guard"):
+        record = check_by_id(records, check_id)
+        assert record["status"] == "inconclusive"
+        assert record["evidence"]["prompt_available"] is False
+        assert record["reason"]
+
+
+@pytest.mark.parametrize("level", [3, 4])
+@pytest.mark.parametrize("include_final", [False, True])
+def test_prompt_final_answer_needs_both_permissions(level, include_final):
+    profile = PROFILES["solution" if include_final else "steps"]
+    generation = make_generation("Ein Hinweis.", level=level)
+    payload = build_request_payload(CASE, profile, level, "test-model")
+    generation["request_payload"] = payload
+    generation["returned"]["context_options"] = payload["context_options"]
+    generation["returned"]["prompt_messages"][1]["content"] += " " + FINAL
+    guard = check_by_id(
+        run_checks(generation, CASE, profile, POLICY), "prompt_solution_guard"
+    )
+    allowed = include_final and level == 4
+    assert guard["status"] == ("pass" if allowed else "fail")
+    assert guard["evidence"]["final_locked"] is not allowed
+
+
+@pytest.mark.parametrize("case_id", [
+    "prod-correct-001", "chain-correct-equivalent-001",
+])
+def test_correct_student_answer_is_not_a_prompt_solution_leak(case_id):
+    case = CASES[case_id]
+    profile = PROFILES["base"]
+    generation = make_generation("Ein Hinweis.")
+    payload = build_request_payload(case, profile, 3, "test-model")
+    generation.update(
+        case_id=case.case_id, profile_id=profile.profile_id, request_payload=payload
+    )
+    generation["returned"].update(
+        question_id=case.tutor_context.question_id,
+        context_options=payload["context_options"],
+        prompt_messages=[
+            {"role": "system", "content": "policy"},
+            {"role": "user", "content": (
+                case.tutor_context.question_text + "\n<student_answer>\n"
+                + case.tutor_context.student_answer + "\n</student_answer>"
+            )},
+        ],
+    )
+    records = run_checks(generation, case, profile, POLICY)
+    assert check_by_id(records, "prompt_required_content")["status"] == "pass"
+    assert check_by_id(records, "prompt_solution_guard")["status"] == "pass"
+    # The same answer outside student input must still trigger the guard.
+    generation["returned"]["prompt_messages"][1]["content"] += (
+        "\nsolution section: " + case.tutor_context.student_answer
+    )
+    guard = check_by_id(
+        run_checks(generation, case, profile, POLICY), "prompt_solution_guard"
+    )
+    assert guard["status"] == "fail"
+    assert "final_answer" in guard["evidence"]["leaked"]
+
+
 def test_disclosure_literal_and_level4_semantics():
     # Unzulässige Offenlegung auf Stufe 3.
     generation = make_generation(
@@ -149,6 +222,43 @@ def test_disclosure_detects_equivalent_form():
     assert disclosure["evidence"]["match_kind"] == "literal_or_equivalent"
 
 
+@pytest.mark.parametrize("hint", [
+    "Pruefe die innere Ableitung.", "`x+1`", r"$\frac{1}{2}$",
+])
+@pytest.mark.parametrize("level", [3, 4])
+def test_no_positive_disclosure_match_is_inconclusive(hint, level):
+    disclosure = check_by_id(
+        run_checks(make_generation(hint, level), CASE, PROFILES["steps"], POLICY),
+        "final_answer_disclosure",
+    )
+    assert disclosure["status"] == "inconclusive"
+    assert disclosure["evidence"]["present"] is None
+
+
+@pytest.mark.parametrize("wrapper", [
+    "`{}`", "```math\n{}\n```", "${}$", "$$ {} $$",
+    r"\({}\)", r"\[{}\]", "\nf'(x) = {}\n",
+])
+def test_symbolic_disclosure_from_explicit_math(wrapper):
+    pytest.importorskip("sympy")
+    expression = "-5*(2*x-2*exp(x))*exp(x*x-2*exp(x))"
+    hint = "Pruefe diese Formel: " + wrapper.format(expression)
+    for level in (3, 4):
+        disclosure = check_by_id(
+            run_checks(make_generation(hint, level), CASE, PROFILES["steps"], POLICY),
+            "final_answer_disclosure",
+        )
+        assert disclosure["status"] == ("pass" if level == 4 else "fail")
+        assert disclosure["evidence"]["present"] is True
+        assert disclosure["evidence"]["match_kind"] == "symbolic"
+
+
+def test_expression_extraction_does_not_parse_prose_fragments():
+    assert _extract_candidate_expressions("Pruefe x+1 und dann x^2.") == []
+    assert _extract_candidate_expressions("x+1\nErgebnis: `2*x`", limit=1) == ["2*x"]
+    assert _extract_candidate_expressions(r"$\frac{1}{2}$") == []
+
+
 def test_symbolic_equivalence_boundary_behaviour():
     equivalent, status = symbolic_equivalence("2+2", "4")
     if status.startswith("sympy nicht verfügbar"):
@@ -168,6 +278,64 @@ def test_symbolic_equivalence_boundary_behaviour():
     assert equivalent is None
 
 
+@pytest.mark.parametrize("candidate,reference,variable", [
+    ("x+x", "2*x", "x"),
+    ("sin(x)^2+cos(x)^2", "1", "x"),
+    ("tan(x)", "sin(x)/cos(x)", "x"),
+    ("sqrt(4)+log(E)+cos(pi)", "2", "x"),
+    ("e^x", "exp(x)", "x"),
+    ("x^(1/2)", "sqrt(x)", "x"),
+    ("0.1+0.2", "3/10", "x"),
+    ("t*t", "t^2", "t"),
+])
+def test_safe_parser_normal_equivalence(candidate, reference, variable):
+    pytest.importorskip("sympy")
+    equivalent, reason = symbolic_equivalence(candidate, reference, variable)
+    assert equivalent is True, reason
+    assert symbolic_equivalence("x+1", "x")[0] is False
+
+
+@pytest.mark.parametrize("expression", [
+    "__import__('os').getcwd()", "x.__class__", "sin(x).__class__",
+    "factorial(1000000)", "Symbol('x')", "open('file')", "x[0]",
+    "sin(x, evaluate=True)", "(lambda: x)()", "[x for x in (1,)]",
+    "import os", "x; x", "unknown(x)", "die innere Ableitung", "x+",
+    "10^1000000", "10^(10^10)", "(x+1)^16", "sqrt(999983^16+1)", "x^(1/999983)",
+    "exp(exp(1000000))", "exp(exp(10))", "exp(exp(exp(x)))",
+    "E^(E^(E^x))", "E^x+" * 6 + "E^x", "((x+sin(x)+cos(x))^4+1)^4",
+    "1e1000000000", "1/0", "sin(" * 13 + "x" + ")" * 13,
+    "x+" * 40 + "x", "x" * 201,
+])
+def test_safe_parser_rejects_attacks_and_limits(expression, monkeypatch):
+    sympy = pytest.importorskip("sympy")
+    calls = []
+
+    def unexpected(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("Rejected syntax must not reach SymPy evaluation")
+
+    monkeypatch.setattr(sympy, "factorial", unexpected)
+    monkeypatch.setattr(sympy, "simplify", unexpected)
+    for candidate, reference in ((expression, "x"), ("x", expression)):
+        equivalent, reason = symbolic_equivalence(candidate, reference)
+        assert equivalent is None, reason
+    assert calls == []
+
+
+def test_sympy_remains_optional(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "sympy", None)
+    assert symbolic_equivalence("x+x", "2*x")[0] is None
+    records = run_checks(make_generation("`x+1`"), CASE, PROFILES["steps"], POLICY)
+    disclosure = check_by_id(records, "final_answer_disclosure")
+    assert disclosure["status"] == "inconclusive"
+    assert disclosure["evidence"]["present"] is None
+    assert disclosure["evidence"]["sympy_available"] is False
+    records = run_checks(make_generation(FINAL), CASE, PROFILES["steps"], POLICY)
+    assert check_by_id(records, "final_answer_disclosure")["status"] == "fail"
+
+
 def test_failed_generation_is_not_checkable():
     records = run_checks(
         {"outcome": "server_error", "hint_level": 3},
@@ -178,7 +346,7 @@ def test_failed_generation_is_not_checkable():
     assert records[0]["status"] == "not_applicable"
 
 
-def test_run_checks_for_run_writes_checks_file(tmp_path: Path):
+def test_run_checks_for_run_writes_checks_file(tmp_path: Path, monkeypatch):
     from evaluation.checks import run_checks_for_run
     from evaluation.corpus import load_experiment
     from evaluation.runner import create_run
@@ -260,6 +428,8 @@ def test_run_checks_for_run_writes_checks_file(tmp_path: Path):
         )
         handle.write(json.dumps(mismatch, ensure_ascii=False) + "\n")
 
+    # Manifest inputs are CODE_DIR-relative, independent of the notebook cwd.
+    monkeypatch.chdir(EVAL_DIR / "notebooks")
     result = run_checks_for_run(run_dir)
     assert result["records"] == 14  # 2 × 7 Checks je erfolgreicher Antwort
     assert result["failed"] >= 1
@@ -276,14 +446,14 @@ def test_run_checks_for_run_writes_checks_file(tmp_path: Path):
         and record["check_id"] == "context_options_match"
     ]
     assert mismatched and mismatched[0]["status"] == "fail"
-    # Konsistenz: Antwort ohne offenkundige Offenlegung besteht den
-    # Disclosure-Check.
+    # No positive match cannot establish absence of disclosure.
     ok_disclosure = [
         record for record in checks
         if record["attempt_id"] == "attempt-0001"
         and record["check_id"] == "final_answer_disclosure"
     ]
-    assert ok_disclosure and ok_disclosure[0]["status"] == "pass"
+    assert ok_disclosure and ok_disclosure[0]["status"] == "inconclusive"
+    assert ok_disclosure[0]["evidence"]["present"] is None
 
 
 def test_normalize_expression_is_whitespace_and_case_insensitive():

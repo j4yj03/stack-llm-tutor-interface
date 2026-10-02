@@ -498,6 +498,8 @@ class Runner:
             )
 
         manifest = load_manifest(self.run_dir)
+        if manifest.get("execution_mode") == "offline_demo":
+            raise RunnerError("Ein Demolauf darf nicht gegen die Live-API ausgefuehrt werden.")
         verify_manifest(self.run_dir, manifest)
         jobs = load_plan(self.run_dir)
         repairs = _repair_in_flight(self.run_dir)

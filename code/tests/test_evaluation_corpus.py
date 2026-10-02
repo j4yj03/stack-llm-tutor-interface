@@ -30,17 +30,178 @@ def load_default_fixtures():
 
 def test_example_fixtures_are_valid_and_complete():
     cases, profile_set, experiment = load_default_fixtures()
-    assert cases
+    assert len(cases) == 12
+    assert {case.task_instance_id for case in cases} == {
+        "synthetic-chain-exp-f1", "synthetic-chain-exp-f2",
+        "synthetic-prod-f1", "synthetic-prod-f2",
+    }
+    assert len({case.tutor_context.question_text for case in cases}) == 4
+    assert {
+        "chain-exp-missing-inner-001",
+        "chain-exp-wrong-inner-exp-001",
+        "chain-exp-missing-constant-001",
+        "prod-missing-term-001",
+        "prod-wrong-power-001",
+        "prod-correct-001",
+        "chain-correct-equivalent-001",
+        "robustness-prompt-injection-001",
+    } <= {case.case_id for case in cases}
     assert {profile.profile_id for profile in profile_set.profiles} >= set(
         experiment.profiles
     )
     assert validate_experiment(experiment, cases, profile_set) == []
     for case in cases:
+        assert case.readiness == "draft"
         assert case.tutor_context.question_text.strip()
         assert case.tutor_context.student_answer.strip()
+        assert case.tutor_context.solution_steps == []
+        assert case.tutor_context.final_answer is None
+        assert case.evaluation_only.instance.instance_id == case.task_instance_id
+        assert case.evaluation_only.reference.expected_diagnosis == (
+            case.tutor_context.diagnosis_code
+        )
+        assert case.evaluation_only.verification.model_dump() == {
+            "mathematics_status": "pending",
+            "diagnosis_status": "pending",
+            "method": None,
+            "tool_and_version": None,
+            "reviewer_id": None,
+            "evidence_refs": [],
+        }
         assert case.evaluation_only.provenance.response_origin == (
             "synthetic_fixture"
         )
+        assert case.evaluation_only.provenance.question_export_ref is None
+        assert case.evaluation_only.provenance.prt_test_result_ref is None
+        assert case.evaluation_only.provenance.student_attempt_ref is None
+        assert case.is_research_eligible(False) is False
+
+
+@pytest.mark.parametrize(
+    "case_id, diagnosis, student_answer, feedback_fragment",
+    [
+        (
+            "prod-wrong-power-001", "wrong_derivative_power",
+            "x*sin(x)+x^2*cos(x)", "Potenzregel",
+        ),
+        (
+            "chain-exp-missing-inner-002",
+            "missing_chain_rule_inner_derivative",
+            "3*exp(2*x+1)", "innere Ableitung",
+        ),
+        (
+            "chain-exp-missing-constant-002", "missing_constant_factor",
+            "2*exp(2*x+1)", "konstante Faktor 3",
+        ),
+        (
+            "prod-missing-term-002", "missing_product_rule_term",
+            "3*x^2*exp(x)", "Summand",
+        ),
+        (
+            "prod-wrong-power-002", "wrong_derivative_power",
+            "x^2*exp(x)+x^3*exp(x)", "Potenzregel",
+        ),
+    ],
+)
+def test_error_fixtures_match_their_synthetic_diagnoses(
+    case_id, diagnosis, student_answer, feedback_fragment
+):
+    cases = {case.case_id: case for case in
+             load_cases(DATA_DIR / "example_cases.jsonl")}
+    case = cases[case_id]
+    context = case.tutor_context
+    reference = case.evaluation_only.reference
+    assert context.student_answer == student_answer
+    assert context.diagnosis_code == reference.expected_diagnosis == diagnosis
+    assert feedback_fragment in context.prt_feedback
+    assert reference.expected_input_validity == "valid"
+    assert reference.expected_correctness == "incorrect"
+    assert context.score == 0.0
+
+
+@pytest.mark.parametrize(
+    "instance_id, question_id, function, final_answer, equivalents, step_markers",
+    [
+        (
+            "synthetic-chain-exp-f2", "ableitung_kettenregel_exp_001",
+            "3*exp(2*x+1)", "6*exp(2*x+1)",
+            ["3*exp(2*x+1)*2", "6*exp(1)*exp(2*x)"],
+            [
+                "konstanten Faktor 3", "g(x)=2*x+1", "g'(x)=2",
+                "3*exp(g(x))*g'(x)", "6*exp(2*x+1)",
+            ],
+        ),
+        (
+            "synthetic-prod-f2", "ableitung_produktregel_001",
+            "x^3*exp(x)", "3*x^2*exp(x)+x^3*exp(x)",
+            ["x^2*(x+3)*exp(x)", "(x^3+3*x^2)*exp(x)"],
+            [
+                "u(x)=x^3", "u'(x)*v(x)+u(x)*v'(x)", "u'(x)=3*x^2",
+                "3*x^2*exp(x)+x^3*exp(x)", "x^2*(x+3)*exp(x)",
+            ],
+        ),
+    ],
+)
+def test_variant_fixtures_use_their_own_local_references(
+    instance_id, question_id, function, final_answer, equivalents, step_markers
+):
+    cases = [case for case in load_cases(DATA_DIR / "example_cases.jsonl")
+             if case.task_instance_id == instance_id]
+    assert len(cases) == 2
+    first_reference = cases[0].evaluation_only.reference.model_dump(
+        exclude={"expected_diagnosis"}
+    )
+    for case in cases:
+        context = case.tutor_context
+        reference = case.evaluation_only.reference
+        assert context.question_id == question_id
+        assert "f(x)=" + function in context.question_text
+        assert context.learning_goals
+        assert context.math_rules
+        assert reference.final_answer == final_answer
+        assert reference.equivalent_forms == equivalents
+        assert len(reference.solution_steps) == len(step_markers)
+        for step, marker in zip(reference.solution_steps, step_markers):
+            assert marker in step
+        assert reference.model_dump(exclude={"expected_diagnosis"}) == (
+            first_reference
+        )
+        assert case.evaluation_only.provenance.instantiated_task_ref is None
+        assert json.dumps(case.model_dump(), ensure_ascii=False).isascii()
+
+
+def test_example_fixture_mathematics_with_optional_sympy():
+    """Lokale Plausibilitaet, keine STACK- oder PRT-Verifizierung."""
+    sympy = pytest.importorskip(
+        "sympy", reason="Optional symbolic fixture checks require sympy"
+    )
+    x = sympy.Symbol("x", real=True)
+    functions = {
+        "synthetic-chain-exp-f1": "-5*exp(x^2-2*exp(x))",
+        "synthetic-chain-exp-f2": "3*exp(2*x+1)",
+        "synthetic-prod-f1": "x^2*sin(x)",
+        "synthetic-prod-f2": "x^3*exp(x)",
+    }
+    for case in load_cases(DATA_DIR / "example_cases.jsonl"):
+        reference = case.evaluation_only.reference
+        function = sympy.sympify(
+            functions[case.task_instance_id].replace("^", "**"), locals={"x": x}
+        )
+        derivative = sympy.diff(function, x)
+        for formula in [reference.final_answer] + reference.equivalent_forms:
+            expression = sympy.sympify(
+                formula.replace("^", "**"), locals={"x": x}
+            )
+            assert sympy.simplify(expression - derivative) == 0, case.case_id
+        if reference.expected_input_validity == "valid":
+            answer = sympy.sympify(
+                case.tutor_context.student_answer.replace("^", "**"),
+                locals={"x": x},
+            )
+            is_correct = sympy.simplify(answer - derivative) == 0
+            assert is_correct == (
+                reference.expected_correctness == "correct"
+            ), case.case_id
 
 
 def test_all_ten_flags_are_explicit_in_every_profile():

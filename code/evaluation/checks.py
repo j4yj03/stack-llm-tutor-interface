@@ -11,17 +11,22 @@ Extraktionsproblemen ausdrücklich "inconclusive" und zählt nicht als
 "nicht enthalten".
 """
 
+import ast
 import json
 import re
+from decimal import Decimal
+from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from evaluation.corpus import sha256_json
 from evaluation.models import SCHEMA_VERSION
 
-CHECK_VERSION = "1.0"
+CHECK_VERSION = "1.1"
 
 MATH_VARIABLE = "x"
+_MATH_FUNCTIONS = ("sin", "cos", "tan", "exp", "log", "sqrt")
+_MAX_EXPRESSION_LENGTH = 200
 
 _LEVEL_NAME_PATTERN = re.compile(
     r"hilfestufe|stufe\s*\d|level\s*\d", re.IGNORECASE
@@ -33,14 +38,20 @@ def normalize_expression(text: str) -> str:
     return " ".join(str(text).split()).lower()
 
 
-def _user_message(prompt_messages: Optional[List[dict]]) -> str:
-    if not prompt_messages:
-        return ""
-    return "\n".join(
-        message.get("content", "")
+def _user_message(prompt_messages: Optional[List[dict]]) -> Optional[str]:
+    if not isinstance(prompt_messages, list) or not prompt_messages or any(
+        not isinstance(message, dict)
+        or message.get("role") not in ("system", "user", "assistant")
+        or not isinstance(message.get("content"), str)
+        for message in prompt_messages
+    ):
+        return None
+    content = "\n".join(
+        message["content"]
         for message in prompt_messages
         if message.get("role") == "user"
     )
+    return content if content.strip() else None
 
 
 def _check(
@@ -77,19 +88,19 @@ def run_checks_for_run(run_dir: Path) -> dict:
 
     from evaluation.corpus import load_cases as _load_cases
     from evaluation.corpus import load_profiles as _load_profiles
-    from evaluation.runner import load_manifest, load_plan, verify_manifest
+    from evaluation.runner import CODE_DIR, load_manifest, load_plan, verify_manifest
 
     manifest = load_manifest(run_dir)
     verify_manifest(run_dir, manifest)
     jobs = {job["job_id"]: job for job in load_plan(run_dir)}
     cases = {
         case.case_id: case
-        for case in _load_cases(Path(manifest["paths"]["corpus"]))
+        for case in _load_cases(CODE_DIR / manifest["paths"]["corpus"])
     }
     profiles = {
         profile.profile_id: profile
         for profile in _load_profiles(
-            Path(manifest["paths"]["profiles"])
+            CODE_DIR / manifest["paths"]["profiles"]
         ).profiles
     }
     policy = manifest.get("hint_policy") or {}
@@ -169,6 +180,8 @@ def run_checks(
     returned = generation.get("returned") or {}
     hint = returned.get("hint") or ""
     user_message = _user_message(returned.get("prompt_messages"))
+    prompt_available = user_message is not None
+    user_message = user_message or ""
     level_policy = (policy or {}).get(str(level)) or {}
 
     # --- 1. Identität ---------------------------------------------
@@ -257,12 +270,14 @@ def run_checks(
     ]
     records.append(_check(
         "prompt_required_content",
-        "pass" if not missing else "fail",
+        ("pass" if not missing else "fail") if prompt_available else "inconclusive",
         {
-            "missing": missing,
+            "prompt_available": prompt_available,
+            "missing": missing if prompt_available else None,
             "checked_parts": [name for name, _ in required_parts],
         },
-        "" if not missing else "Erforderliche Kontexte fehlen im Prompt.",
+        ("" if not missing else "Erforderliche Kontexte fehlen im Prompt.")
+        if prompt_available else "Keine echten prompt_messages verfuegbar.",
         attempt_id, job_id,
     ))
 
@@ -271,15 +286,22 @@ def run_checks(
     steps_locked = not profile.include_solution_steps or (
         not steps_allowed_by_level
     )
+    # Student input is not a newly disclosed reference solution section.
+    guard_message = normalize_expression(re.sub(
+        r"<student_answer>.*?</student_answer>", "", user_message,
+        flags=re.DOTALL,
+    ))
     if steps_locked and reference.solution_steps and any(
-        normalize_expression(step) in normalize_expression(user_message)
+        normalize_expression(step) in guard_message
         for step in reference.solution_steps
     ):
         leaked_prompt_parts.append("solution_steps")
-    final_locked = not profile.include_final_answer
+    final_locked = not (
+        profile.include_final_answer and level_policy.get("include_final_answer")
+    )
     if final_locked and reference.final_answer:
         if any(
-            normalize_expression(form) in normalize_expression(user_message)
+            normalize_expression(form) in guard_message
             for form in [reference.final_answer] + list(
                 reference.equivalent_forms
             )
@@ -287,15 +309,16 @@ def run_checks(
             leaked_prompt_parts.append("final_answer")
     records.append(_check(
         "prompt_solution_guard",
-        "fail" if leaked_prompt_parts else "pass",
+        ("fail" if leaked_prompt_parts else "pass")
+        if prompt_available else "inconclusive",
         {
-            "leaked": leaked_prompt_parts,
+            "prompt_available": prompt_available,
+            "leaked": leaked_prompt_parts if prompt_available else None,
             "steps_locked": steps_locked,
             "final_locked": final_locked,
         },
-        "" if not leaked_prompt_parts else (
-            "Gesperrte Lösungsabschnitte im Prompt."
-        ),
+        ("" if not leaked_prompt_parts else "Gesperrte Loesungsabschnitte im Prompt.")
+        if prompt_available else "Keine echten prompt_messages verfuegbar.",
         attempt_id, job_id,
     ))
 
@@ -349,18 +372,16 @@ def run_checks(
             allowed = level == 4
         if matched_form is None:
             records.append(_check(
-                "final_answer_disclosure", "pass",
+                "final_answer_disclosure", "inconclusive",
                 {
-                    "present": False,
+                    "present": None,
                     "sympy_available": sympy_available(),
                     "note": (
-                        "Kein literal/äquivalenter Treffer; symbolische "
-                        "Prüfung bleibt bei Parseproblemen unbestimmt."
+                        "Kein positiver literal/aequivalenter/symbolischer "
+                        "Treffer; Abwesenheit ist nicht nachgewiesen."
                     ),
                 },
-                "" if sympy_available() else (
-                    "Ohne Treffer; sympy fehlt, symbolische Tiefe begrenzt."
-                ),
+                "Kein Endloesungstreffer; unvollstaendige Detektion.",
                 attempt_id, job_id,
             ))
         else:
@@ -406,25 +427,32 @@ def _match_final_answer(
 
 
 def _extract_candidate_expressions(hint: str, limit: int = 8) -> List[str]:
-    """Konservative Heuristik für Formelkandidaten in Prosa.
-
-    Kein Parseranspruch: nur mathematisch anmutende Züge mit Operator
-    und Operand werden geprüft; keine Umlaute (deutsche Wörter), Länge
-    und Tokenzahl begrenzt. Alles Unklare bleibt unbestimmt.
-    """
-    raw_spans = re.findall(r"[A-Za-z0-9_+\-*/^().,\s]{3,200}", hint)
+    """Prefer explicit math spans and standalone formulas, not prose fragments."""
+    if limit <= 0 or len(hint) > 20000:
+        return []
+    matches = re.findall(
+        r"```[^\n`]*\n(.*?)```|(?<!`)`([^`\n]+)`(?!`)"
+        r"|\$\$(.*?)\$\$|(?<!\$)\$([^$\n]+)\$(?!\$)"
+        r"|\\\[(.*?)\\\]|\\\((.*?)\\\)",
+        hint, flags=re.DOTALL,
+    )
+    raw_spans = [span for match in matches for span in match if span]
+    raw_spans += [line for span in raw_spans for line in span.splitlines()]
+    raw_spans += hint.splitlines()
+    allowed_names = set(_MATH_FUNCTIONS) | {MATH_VARIABLE, "e", "E", "pi"}
     candidates: List[str] = []
     for span in raw_spans:
-        cleaned = span.strip()
-        if len(cleaned) < 3:
+        if len(span) > _MAX_EXPRESSION_LENGTH:
             continue
-        has_operator = any(symbol in cleaned for symbol in "+-*/^")
-        has_operand = any(character.isalnum() for character in cleaned)
-        if not (has_operator and has_operand):
+        cleaned = " ".join(span.split())
+        if cleaned.count("=") == 1:
+            label, expression = cleaned.split("=", 1)
+            if re.fullmatch(r"[A-Za-z]'{0,2}(?:\([A-Za-z]\))?", label.strip()):
+                cleaned = expression.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_+\-*/^().\s]+", cleaned):
             continue
-        if re.search(r"[äöüßÄÖÜ]", cleaned):
-            continue
-        if len(cleaned.split()) > 24:
+        names = set(re.findall(r"\b[A-Za-z_][A-Za-z_0-9]*\b", cleaned))
+        if not names <= allowed_names:
             continue
         if cleaned not in candidates:
             candidates.append(cleaned)
@@ -438,53 +466,153 @@ def symbolic_equivalence(
     reference: str,
     variable: str = MATH_VARIABLE,
 ) -> Tuple[Optional[bool], str]:
-    """Prüft Äquivalenz zweier Ausdrücke begrenzt und ohne freies eval.
-
-    Rückgabe: (True | False | None, Grund). None heißt ausdrücklich:
-    nicht bewertbar (Import/Parse/Aufwand) und wird als "inconclusive"
-    berichtet, niemals als Bestehen.
-    """
+    """Compare bounded AST expressions; None means uncheckable, not absence."""
     try:
         import sympy
-        from sympy import Symbol, simplify
-        from sympy.parsing.sympy_parser import (
-            convert_xor,
-            parse_expr,
-            standard_transformations,
-        )
     except Exception as error:
         return None, "sympy nicht verfügbar: " + str(error)[:120]
 
-    if len(candidate) > 200 or len(reference) > 200:
-        return None, "Ausdruck zu lang für begrenzte Prüfung"
-    forbidden = ("__", ";", ":", "[", "]", "{", "}", "!", "=", "|", "\n")
-    if any(token in candidate for token in forbidden):
-        return None, "Kandidat enthält unzulässige Zeichen"
-    if any(token in reference for token in forbidden):
-        return None, "Referenz enthält unzulässige Zeichen"
+    functions = {name: getattr(sympy, name) for name in _MATH_FUNCTIONS}
+    constants = {"e": sympy.E, "E": sympy.E, "pi": sympy.pi}
 
-    transformations = standard_transformations + (convert_xor,)
-    namespace = {name: getattr(sympy, name) for name in dir(sympy)}
-    symbol_map = {variable: Symbol(variable)}
+    def parse_expression(text: str):
+        if not isinstance(text, str) or not 0 < len(text) <= _MAX_EXPRESSION_LENGTH:
+            raise ValueError("Ausdruck leer oder zu lang")
+        source = text.strip().replace("^", "**")
+        if not re.fullmatch(r"[A-Za-z0-9_+\-*/(). \t]+", source):
+            raise ValueError("Unzulaessige Zeichen")
+        tree = ast.parse(source, mode="eval")
+        nodes = list(ast.walk(tree))
+        function_count = sum(
+            isinstance(node, ast.Call) or (
+                isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow)
+                and isinstance(node.left, ast.Name) and node.left.id in {"e", "E"}
+            ) for node in nodes
+        )
+        if len(nodes) > 80 or function_count > 6:
+            raise ValueError("Zu viele AST-Knoten oder Funktionsaufrufe")
+        power_budget = 1
+
+        def function_argument(argument):
+            if (argument.has(sympy.Function) and not argument.free_symbols) or any(
+                abs(number) > 64 for number in argument.atoms(sympy.Rational)
+            ):
+                raise ValueError("Funktionsargument ausserhalb der Parsergrenzen")
+            return argument
+
+        def build(node: ast.AST, depth: int = 0, function_depth: int = 0):
+            nonlocal power_budget
+            if depth > 12:
+                raise ValueError("Ausdruck zu tief verschachtelt")
+            if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+                literal = ast.get_source_segment(source, node) or ""
+                if not re.fullmatch(
+                    r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?",
+                    literal,
+                ) or len(literal) > 24:
+                    raise ValueError("Unzulaessige Zahl")
+                number = Decimal(literal)
+                if (len(number.as_tuple().digits) > 12
+                        or abs(number.as_tuple().exponent) > 12
+                        or abs(number) > 1000000):
+                    raise ValueError("Zahl ausserhalb der Parsergrenzen")
+                return sympy.Rational(*number.as_integer_ratio())
+            if isinstance(node, ast.Name):
+                if node.id == variable:
+                    return sympy.Symbol(variable)
+                if node.id in constants:
+                    return constants[node.id]
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                operand = build(node.operand, depth + 1, function_depth)
+                if isinstance(node.op, ast.UAdd):
+                    return operand
+                return -operand if operand.is_Rational else sympy.Mul(
+                    -1, operand, evaluate=False
+                )
+            if isinstance(node, ast.BinOp) and isinstance(
+                node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
+            ):
+                exponential = (isinstance(node.op, ast.Pow)
+                               and isinstance(node.left, ast.Name)
+                               and node.left.id in {"e", "E"})
+                left = build(node.left, depth + 1, function_depth)
+                right = build(node.right, depth + 1, function_depth + int(exponential))
+                numeric = bool(left.is_Rational and right.is_Rational)
+                if isinstance(node.op, ast.Add):
+                    result = sympy.Add(left, right, evaluate=numeric)
+                elif isinstance(node.op, ast.Sub):
+                    result = sympy.Add(
+                        left, sympy.Mul(-1, right, evaluate=numeric), evaluate=numeric
+                    )
+                elif isinstance(node.op, ast.Mult):
+                    result = sympy.Mul(left, right, evaluate=numeric)
+                elif isinstance(node.op, ast.Div):
+                    if right.is_zero is True:
+                        raise ValueError("Division durch Null")
+                    result = sympy.Mul(
+                        left, sympy.Pow(right, -1, evaluate=numeric), evaluate=numeric
+                    )
+                else:
+                    if exponential:
+                        if function_depth >= 2:
+                            raise ValueError("Zu viele verschachtelte Funktionen")
+                        return sympy.exp(function_argument(right), evaluate=False)
+                    if not right.is_Rational:
+                        raise ValueError("Nur begrenzte numerische Potenzen erlaubt")
+                    # Bound powers before SymPy can expand or evaluate them.
+                    power_budget *= max(1, abs(right))
+                    max_power = 16 if left.is_Atom else 4
+                    if abs(right) > max_power or right.q > 8 or power_budget > 64:
+                        raise ValueError("Potenz ausserhalb der Parsergrenzen")
+                    result = sympy.Pow(left, right, evaluate=numeric)
+                if result.is_Rational and (
+                    abs(result) > 1000000 or max(
+                        int(result.p).bit_length(), int(result.q).bit_length()
+                    ) > 48
+                ):
+                    raise ValueError("Zahl ausserhalb der Parsergrenzen")
+                return result
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in functions and len(node.args) == 1
+                    and not node.keywords):
+                if function_depth >= 2:
+                    raise ValueError("Zu viele verschachtelte Funktionen")
+                argument = build(node.args[0], depth + 1, function_depth + 1)
+                return functions[node.func.id](function_argument(argument), evaluate=False)
+            raise ValueError("Nicht unterstuetzte Syntax oder unbekannter Name")
+
+        # Estimate expansion before the comparison, not after a costly simplify.
+        def expansion_cost(expression) -> int:
+            costs = [expansion_cost(argument) for argument in expression.args]
+            if expression.is_Add:
+                cost = sum(costs)
+            elif expression.is_Mul:
+                cost = prod(costs)
+            elif expression.is_Pow:
+                cost = costs[0] ** max(1, int(sympy.ceiling(abs(expression.exp))))
+            else:
+                cost = max(costs, default=1)
+            if cost > 128:
+                raise ValueError("Symbolische Expansion ausserhalb der Parsergrenzen")
+            return cost
+
+        expression = build(tree.body)
+        expansion_cost(expression)
+        return expression
+
     try:
-        candidate_expr = parse_expr(
-            candidate,
-            local_dict=symbol_map,
-            global_dict=namespace,
-            transformations=transformations,
-        )
-        reference_expr = parse_expr(
-            reference,
-            local_dict=symbol_map,
-            global_dict=namespace,
-            transformations=transformations,
-        )
+        if (not isinstance(variable, str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,15}", variable)
+                or variable in functions or variable in constants):
+            raise ValueError("Unzulaessiger Variablenname")
+        candidate_expr = parse_expression(candidate)
+        reference_expr = parse_expression(reference)
     except Exception as error:
-        return None, "Parse nicht möglich: " + str(error)[:160]
-    if candidate_expr is None or reference_expr is None:
-        return None, "Leerer Ausdruck"
+        return None, "Parse nicht moeglich: " + str(error)[:160]
     try:
-        difference = simplify(candidate_expr - reference_expr)
+        difference = sympy.simplify(candidate_expr - reference_expr, doit=False)
+        if difference.has(sympy.nan, sympy.zoo, sympy.oo, -sympy.oo):
+            return None, "Vergleich enthaelt einen undefinierten Wert"
     except Exception as error:
         return None, "Vergleich nicht abgeschlossen: " + str(error)[:160]
     if difference == 0:

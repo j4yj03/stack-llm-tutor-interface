@@ -17,7 +17,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from evaluation import runner
 from evaluation.checks import load_policy
+from evaluation.corpus import load_cases
 from evaluation.models import SCHEMA_VERSION
 
 GENERATIONS_FILE = "generations.jsonl"
@@ -41,12 +43,12 @@ CHOICE_FIELDS = [
     "loesungsverrat_unzulaessig",
 ]
 RFC_REVIEW_COLUMNS = (
-    ["review_id", "hilfestufe", "hilfestufenziel", "aufgabenstellung",
+    ["review_id", "rater_id", "hilfestufe", "hilfestufenziel", "aufgabenstellung",
      "studentische_antwort", "referenz_endloesung", "erwarteter_fehlerfall",
-     "tutorhinweis"]
+     "erwartete_validitaet", "erwartete_korrektheit", "tutorhinweis"]
     + LIKERT_FIELDS + CHOICE_FIELDS + ["begruendung"]
 )
-_CHOICE_VALUES = {"ja", "nein", "unklar", "nicht_anwendbar", ""}
+_CHOICE_VALUES = ("ja", "nein", "unklar", "nicht_anwendbar")
 
 
 def _read_jsonl(path: Path) -> List[dict]:
@@ -61,7 +63,32 @@ def _read_jsonl(path: Path) -> List[dict]:
     return records
 
 
-def _load_run_core(run_dir: Path):
+def _successful_results(generations: List[dict]) -> List[dict]:
+    """Letzter erfolgreicher Versuch je Job in JSONL-Journalreihenfolge."""
+    by_job: Dict[str, dict] = {}
+    for record in generations:
+        if record.get("outcome") == "success":
+            by_job[record["job_id"]] = record
+    return list(by_job.values())
+
+
+def _has_ratings(values: dict) -> bool:
+    return any(
+        values.get(field) not in (None, "", "n_a")
+        for field in LIKERT_FIELDS + CHOICE_FIELDS
+    )
+
+
+def _model_key(record: dict) -> str:
+    return (
+        record.get("requested_model")
+        or (record.get("returned") or {}).get("model") or "server_default"
+    )
+
+
+def _load_run_core(
+    run_dir: Path,
+) -> Tuple[dict, List[dict], List[dict], List[dict]]:
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(
@@ -72,8 +99,24 @@ def _load_run_core(run_dir: Path):
         record for record in _read_jsonl(run_dir / GENERATIONS_FILE)
         if record.get("execution_source") == "live_tutor_api"
     ]
-    checks = _read_jsonl(run_dir / CHECKS_FILE)
-    ratings = _read_jsonl(run_dir / REVIEW_DIR / "ratings.jsonl")
+    live_attempt_ids = {record["attempt_id"] for record in generations}
+    result_ids = {
+        record["attempt_id"] for record in _successful_results(generations)
+    }
+    checks = [
+        check for check in _read_jsonl(run_dir / CHECKS_FILE)
+        if check.get("attempt_id") in live_attempt_ids
+    ]
+    ratings: List[dict] = []
+    seen = set()
+    for rating in _read_jsonl(run_dir / REVIEW_DIR / "ratings.jsonl"):
+        key = (rating.get("review_id"), rating.get("rater_id"))
+        if (rating.get("attempt_id") not in result_ids
+                or not _has_ratings(rating.get("ratings") or {})
+                or key in seen):
+            continue
+        ratings.append(rating)
+        seen.add(key)
     return manifest, generations, checks, ratings
 
 
@@ -88,19 +131,29 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
     """Erzeugt neutralen Bewertungsbogen + Mapping (blind gegenüber
     Modell und Kontextprofil)."""
     manifest, generations, _checks, _ratings = _load_run_core(run_dir)
-    review_dir = run_dir / REVIEW_DIR
-    review_dir.mkdir(parents=True, exist_ok=True)
+    paths = manifest.get("paths") or {}
+    corpus_path = paths.get("corpus")
+    # Alte Laufartefakte ohne Korpuspfad haben keine Bewertungsreferenzen.
+    cases = {
+        case.case_id: case
+        for case in load_cases(runner.CODE_DIR / corpus_path)
+    } if corpus_path else {}
     policy = manifest.get("hint_policy")
     if not policy:
-        from evaluation.runner import POLICY_PATH
-
-        policy = load_policy(POLICY_PATH)
+        policy_path = paths.get("policy")
+        policy = load_policy(
+            runner.CODE_DIR / policy_path if policy_path else runner.POLICY_PATH
+        )
 
     packet_rows: List[dict] = []
     mapping: Dict[str, dict] = {}
-    for record in generations:
-        if record.get("outcome") != "success":
-            continue
+    for record in _successful_results(generations):
+        case = cases.get(record.get("case_id"))
+        if corpus_path and case is None:
+            raise ValueError(
+                "Fall fehlt im Laufkorpus: " + str(record.get("case_id"))
+            )
+        reference = case.evaluation_only.reference.model_dump() if case else {}
         returned = record.get("returned") or {}
         hint = returned.get("hint") or ""
         level = record.get("hint_level")
@@ -110,12 +163,15 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
         stack = payload.get("stack") or {}
         packet_rows.append({
             "review_id": review_id,
+            "rater_id": "",
             "hilfestufe": level,
             "hilfestufenziel": level_policy.get("goal", ""),
             "aufgabenstellung": stack.get("question_text", ""),
             "studentische_antwort": stack.get("student_answer", ""),
-            "referenz_endloesung": "",
-            "erwarteter_fehlerfall": "",
+            "referenz_endloesung": reference.get("final_answer") or "",
+            "erwarteter_fehlerfall": reference.get("expected_diagnosis") or "",
+            "erwartete_validitaet": reference.get("expected_input_validity") or "",
+            "erwartete_korrektheit": reference.get("expected_correctness") or "",
             "tutorhinweis": hint,
             **{field: "" for field in LIKERT_FIELDS},
             **{field: "" for field in CHOICE_FIELDS},
@@ -137,6 +193,8 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
             if key in limited_ids
         }
 
+    review_dir = run_dir / REVIEW_DIR
+    review_dir.mkdir(parents=True, exist_ok=True)
     packet_path = review_dir / "review_packet.csv"
     with open(packet_path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
@@ -159,19 +217,31 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
 
 def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
     """Liest Bewertungs-CSV ein und validiert gegen das Raster."""
+    _manifest, generations, _checks, ratings = _load_run_core(run_dir)
+    result_ids = {
+        record["attempt_id"] for record in _successful_results(generations)
+    }
     review_dir = run_dir / REVIEW_DIR
     mapping_path = review_dir / "review_mapping.json"
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))["mapping"]
     rubric_version = "rubric-1.0"
 
     imported = 0
+    valid_rows = 0
     errors: List[str] = []
     records: List[dict] = []
+    existing = {
+        (record["review_id"], record["rater_id"])
+        for record in ratings
+    }
     with open(ratings_csv, "r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter=";")
         for line_number, row in enumerate(reader, start=2):
             review_id = (row.get("review_id") or "").strip()
-            if not review_id:
+            if not review_id or not any(
+                (row.get(field) or "").strip()
+                for field in LIKERT_FIELDS + CHOICE_FIELDS
+            ):
                 continue
             if review_id not in mapping:
                 errors.append(
@@ -179,10 +249,10 @@ def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
                     + review_id
                 )
                 continue
-            rater_id = (row.get("rater_id") or "").strip()
-            if not rater_id:
+            if mapping[review_id]["attempt_id"] not in result_ids:
                 errors.append(
-                    "Zeile " + str(line_number) + ": rater_id fehlt"
+                    "Zeile " + str(line_number)
+                    + ": kein aktueller erfolgreicher Live-Versuch fuer " + review_id
                 )
                 continue
             likert, likert_errors = _parse_likert(row, line_number)
@@ -191,34 +261,59 @@ def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
             errors.extend(choice_errors)
             if likert_errors or choice_errors:
                 continue
+            values = {**likert, **choices}
+            if not _has_ratings(values):
+                continue
+            rater_id = (row.get("rater_id") or "").strip()
+            if not rater_id:
+                errors.append("Zeile " + str(line_number) + ": rater_id fehlt")
+                continue
+            reason = (row.get("begruendung") or "").strip()
+            needs_reason = any(
+                value is not None and value <= 2 for value in likert.values()
+            ) or any(
+                choices[field] == negative
+                for field, negative in {
+                    "mat_falsch": "ja",
+                    "widerspruch_pruefergebnis": "ja",
+                    "erfundene_diagnose": "ja",
+                    "stufe_angemessen": "nein",
+                    "loesungsverrat_unzulaessig": "ja",
+                }.items()
+            )
+            if needs_reason and not reason:
+                errors.append(
+                    "Zeile " + str(line_number)
+                    + ": begruendung fehlt fuer negative Markierung "
+                    "oder Bewertung <= 2"
+                )
+                continue
+            valid_rows += 1
+            key = (review_id, rater_id)
+            if key in existing:
+                continue
             records.append({
                 "schema_version": SCHEMA_VERSION,
                 "rubric_version": rubric_version,
                 "review_id": review_id,
                 "attempt_id": mapping[review_id]["attempt_id"],
                 "rater_id": rater_id,
-                "ratings": {**likert, **choices},
-                "begruendung": (row.get("begruendung") or "").strip(),
+                "ratings": values,
+                "begruendung": reason,
                 "imported_at": row.get("imported_at", ""),
             })
-            imported += 1
-    if errors and imported == 0:
+            existing.add(key)
+    if errors and valid_rows == 0:
         raise ValueError(
-            "Bewertungsimport vollständig fehlgeschlagen:\n- "
+            "Bewertungsimport vollstaendig fehlgeschlagen:\n- "
             + "\n- ".join(errors[:20])
         )
     if records:
-        existing = {
-            (record["review_id"], record["rater_id"])
-            for record in _read_jsonl(review_dir / "ratings.jsonl")
-        }
         with open(review_dir / "ratings.jsonl", "a", encoding="utf-8") as handle:
             for record in records:
-                key = (record["review_id"], record["rater_id"])
-                if key in existing:
-                    continue
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return {"imported": imported, "errors": errors, "records": len(records)}
+                imported += 1
+    return {"imported": imported, "errors": errors, "records": imported}
 
 
 def _parse_likert(row: dict, line_number: int) -> Tuple[dict, List[str]]:
@@ -256,14 +351,14 @@ def _parse_choices(row: dict, line_number: int) -> Tuple[dict, List[str]]:
             )
             values[field] = None
             continue
-        values[field] = None if raw == "" else raw
+        values[field] = raw
     return values, errors
 
 
 def _field_summary(values: List) -> dict:
     numeric = [value for value in values if isinstance(value, (int, float))]
     if not numeric:
-        return {"n": len(values), "median": None}
+        return {"n": 0, "median": None}
     return {
         "n": len(numeric),
         "median": round(statistics.median(numeric), 3),
@@ -276,14 +371,15 @@ def _field_summary(values: List) -> dict:
 def build_report(run_dir: Path) -> dict:
     """Aggregiert technisches Ergebnis, Checks und Ratings offline."""
     manifest, generations, checks, ratings = _load_run_core(run_dir)
+    results = _successful_results(generations)
     derived_dir = run_dir / DERIVED_DIR
     derived_dir.mkdir(parents=True, exist_ok=True)
     ratings_by_attempt: Dict[str, List[dict]] = defaultdict(list)
     for rating in ratings:
         ratings_by_attempt[rating["attempt_id"]].append(rating)
-    checks_by_attempt: Dict[str, List[dict]] = defaultdict(list)
+    checks_by_attempt: Dict[str, Dict[str, dict]] = defaultdict(dict)
     for check in checks:
-        checks_by_attempt[check["attempt_id"]].append(check)
+        checks_by_attempt[check["attempt_id"]][check["check_id"]] = check
 
     outcome_counts: Dict[str, int] = defaultdict(int)
     durations: List[int] = []
@@ -293,22 +389,32 @@ def build_report(run_dir: Path) -> dict:
             durations.append(int(record["duration_ms"]))
 
     summary_rows: List[dict] = []
-    disclosure_rows: List[dict] = []
     paired_rows: List[dict] = []
 
-    groups: Dict[Tuple[str, int], List[dict]] = defaultdict(list)
-    for record in generations:
-        if record.get("outcome") != "success":
-            continue
-        groups[(record.get("profile_id", "?"), record.get("hint_level", 0))].append(
-            record
-        )
+    groups: Dict[Tuple[str, str, int], List[dict]] = defaultdict(list)
+    for record in results:
+        groups[(
+            _model_key(record), record.get("profile_id", "?"),
+            record.get("hint_level", 0),
+        )].append(record)
 
-    for (profile_id, level), records in sorted(groups.items()):
+    for (model, profile_id, level), records in sorted(groups.items()):
+        group_ratings = [
+            rating
+            for record in records
+            for rating in ratings_by_attempt.get(record["attempt_id"], [])
+        ]
+        n_rated = sum(
+            bool(ratings_by_attempt.get(record["attempt_id"])) for record in records
+        )
         row: dict = {
+            "model": model,
             "profile_id": profile_id,
             "hint_level": level,
             "n_success": len(records),
+            "n_rated": n_rated,
+            "n_missing_ratings": len(records) - n_rated,
+            "n_ratings": len(group_ratings),
             "n_duration_median_ms": None,
         }
         durations_group = [
@@ -319,51 +425,55 @@ def build_report(run_dir: Path) -> dict:
             row["n_duration_median_ms"] = int(statistics.median(durations_group))
         row["check_failures"] = sum(
             1 for record in records
-            for check in checks_by_attempt.get(record["attempt_id"], [])
+            for check in checks_by_attempt.get(record["attempt_id"], {}).values()
             if check.get("status") == "fail"
         )
-        present = prohibited = 0
+        present = prohibited = inconclusive = not_applicable = missing = 0
         for record in records:
-            for check in checks_by_attempt.get(record["attempt_id"], []):
-                if check["check_id"] != "final_answer_disclosure":
-                    continue
-                evidence = check.get("evidence", {})
-                if evidence.get("present"):
-                    present += 1
-                    if check["status"] == "fail":
-                        prohibited += 1
+            check = checks_by_attempt.get(record["attempt_id"], {}).get(
+                "final_answer_disclosure"
+            )
+            if check is None:
+                missing += 1
+            elif check.get("status") == "inconclusive":
+                inconclusive += 1
+            elif check.get("status") == "not_applicable":
+                not_applicable += 1
+            elif check.get("status") in {"pass", "fail"}:
+                present += (check.get("evidence") or {}).get("present") is True
+                prohibited += check["status"] == "fail"
         row["complete_solution_present"] = present
         row["prohibited_disclosure"] = prohibited
+        row["disclosure_inconclusive"] = inconclusive
+        row["disclosure_not_applicable"] = not_applicable
+        row["disclosure_missing"] = missing
         for field in LIKERT_FIELDS:
             values = [
                 rating["ratings"].get(field)
-                for record in records
-                for rating in ratings_by_attempt.get(record["attempt_id"], [])
+                for rating in group_ratings
                 if rating["ratings"].get(field) is not None
             ]
             summary = _field_summary(values)
             row["rating_" + field] = summary.get("median")
             row["rating_" + field + "_n"] = summary.get("n")
+        for field in CHOICE_FIELDS:
+            counts = dict.fromkeys(_CHOICE_VALUES + ("fehlend",), 0)
+            for rating in group_ratings:
+                value = rating["ratings"].get(field)
+                counts[value or "fehlend"] += 1
+            for value, count in counts.items():
+                row["rating_" + field + "_" + value + "_n"] = count
+            row["rating_" + field + "_N"] = len(group_ratings)
         summary_rows.append(row)
 
-        disclosure_rows.append({
-            "profile_id": profile_id,
-            "hint_level": level,
-            "n_success": len(records),
-            "complete_solution_present": present,
-            "prohibited_disclosure": prohibited,
-        })
-
     by_key: Dict[Tuple, dict] = {}
-    for record in generations:
-        if record.get("outcome") != "success":
-            continue
+    for record in results:
         key = (
             record.get("case_id"), record.get("hint_level"),
-            record.get("repetition"),
+            record.get("repetition"), _model_key(record),
         )
         by_key.setdefault(key, {})[record.get("profile_id")] = record
-    for (case_id, level, repetition), profile_map in sorted(by_key.items()):
+    for (case_id, level, repetition, model), profile_map in sorted(by_key.items()):
         base_record = profile_map.get("base")
         base_helpfulness = _helpfulness(base_record, ratings_by_attempt)
         for profile_id, record in sorted(profile_map.items()):
@@ -376,6 +486,7 @@ def build_report(run_dir: Path) -> dict:
                 "case_id": case_id,
                 "hint_level": level,
                 "repetition": repetition,
+                "model": model,
                 "profile_id": profile_id,
                 "compared_to": "base",
                 "hilfreichkeit": helpfulness,
@@ -388,11 +499,12 @@ def build_report(run_dir: Path) -> dict:
         "generations_live_success": sum(
             1 for record in generations if record.get("outcome") == "success"
         ),
+        "responses_total": len(results),
         "checks_total": len(checks),
         "ratings_total": len(ratings),
-        "attempts_with_ratings": len(
-            {rating["attempt_id"] for rating in ratings}
-        ),
+        "attempts_with_ratings": len(ratings_by_attempt),
+        "responses_with_ratings": len(ratings_by_attempt),
+        "responses_missing_ratings": len(results) - len(ratings_by_attempt),
     }
 
     _write_csv(derived_dir / "summary.csv", summary_rows)
@@ -411,7 +523,9 @@ def build_report(run_dir: Path) -> dict:
     }
 
 
-def _helpfulness(record: Optional[dict], ratings_by_attempt) -> Optional[int]:
+def _helpfulness(
+    record: Optional[dict], ratings_by_attempt: Dict[str, List[dict]],
+) -> Optional[float]:
     if record is None:
         return None
     ratings = ratings_by_attempt.get(record["attempt_id"], [])
@@ -453,17 +567,17 @@ def _render_report(
     lines.append("# Evaluationsbericht " + manifest["run_id"])
     lines.append("")
     lines.append("*Experiment:* " + manifest.get("experiment_id", "?")
-                 + " · Protokoll " + manifest.get("protocol_version", "?"))
+                 + " / Protokoll " + manifest.get("protocol_version", "?"))
     lines.append("*Instanz:* " + manifest.get("base_url", "?"))
     lines.append("")
     if manifest.get("allow_unverified_cases"):
         lines.append(
-            "> **Demonstrationslauf:** Korpus enthält nicht verifizierte "
-            "Fälle. Ergebnisse dienen der Werkzeugprüfung, nicht der "
+            "> **Demonstrationslauf:** Korpus enthaelt nicht verifizierte "
+            "Faelle. Ergebnisse dienen der Werkzeugpruefung, nicht der "
             "fachlichen Aussage."
         )
         lines.append("")
-    lines.append("## Durchlauf")
+    lines.append("## Technische Live-Versuche")
     lines.append("")
     lines.append("| Ausgang | Anzahl |")
     lines.append("|---|---:|")
@@ -475,7 +589,7 @@ def _render_report(
         p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
         lines.append(
             "*Dauer:* Median " + str(int(statistics.median(durations)))
-            + " ms · p95 " + str(p95) + " ms"
+            + " ms / p95 " + str(p95) + " ms"
         )
         lines.append("")
     lines.append("## Abdeckung")
@@ -483,20 +597,38 @@ def _render_report(
     for key, value in coverage.items():
         lines.append("- " + key + ": " + str(value))
     lines.append("")
+    lines.append(
+        "Bewertete Antworten: " + str(coverage["responses_with_ratings"])
+        + "/" + str(coverage["responses_total"])
+        + "; Antworten ohne Ratings: " + str(coverage["responses_missing_ratings"])
+        + ". Teilratings zaehlen als bewertet, leere Felder bleiben fehlend."
+    )
+    lines.append("")
     if summary_rows:
-        lines.append("## Profile × Stufe (nur erfolgreiche Live-Antworten)")
+        lines.append("## Modell / Profil / Stufe")
         lines.append("")
-        lines.append("| Profil | Stufe | n | Prüffehler | Lösung vorhanden | "
-                     "unzulässig | Hilfreichkeit (Median/n) |")
-        lines.append("|---|---:|---:|---:|---:|---:|---:|")
+        lines.append("Nur die neueste erfolgreiche Live-Antwort je Job; "
+                     "Fehlversuche bleiben technische Attempts.")
+        lines.append("")
+        lines.append("| Modell | Profil | Stufe | N Antworten | Bewertet | "
+                     "Ohne Rating | Prueffehler | Loesung vorhanden | "
+                     "Unzulaessig | inconclusive | Nicht anwendbar | "
+                     "Check fehlt | Hilfreichkeit (Median/n) |")
+        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for row in summary_rows:
             lines.append(
-                "| " + str(row["profile_id"])
+                "| " + str(row["model"])
+                + " | " + str(row["profile_id"])
                 + " | " + str(row["hint_level"])
                 + " | " + str(row["n_success"])
+                + " | " + str(row["n_rated"])
+                + " | " + str(row["n_missing_ratings"])
                 + " | " + str(row["check_failures"])
                 + " | " + str(row["complete_solution_present"])
                 + " | " + str(row["prohibited_disclosure"])
+                + " | " + str(row["disclosure_inconclusive"])
+                + " | " + str(row["disclosure_not_applicable"])
+                + " | " + str(row["disclosure_missing"])
                 + " | "
                 + str(row.get("rating_hilfreichkeit_naechster_schritt"))
                 + " / "
@@ -504,15 +636,43 @@ def _render_report(
                 + " |"
             )
         lines.append("")
+        lines.append("## Fachliche Kriterien")
+        lines.append("")
+        lines.append(
+            "Jedes Kriterium getrennt als n/N; N = Ratingboegen (einschliesslich "
+            "Teilratings), nicht unabhaengige Antworten. Antworten ohne Rating "
+            "stehen separat oben. Keine kompensierende Gesamtnote."
+        )
+        lines.append("")
+        lines.append("| Modell | Profil | Stufe | Kriterium | ja | nein | "
+                     "unklar | nicht_anwendbar | fehlend |")
+        lines.append("|---|---|---:|---|---:|---:|---:|---:|---:|")
+        for row in summary_rows:
+            for field in CHOICE_FIELDS:
+                prefix = "rating_" + field
+                cells = [
+                    str(row[key]) for key in ("model", "profile_id", "hint_level")
+                ]
+                cells.append(field)
+                cells.extend(
+                    str(row[prefix + "_" + value + "_n"])
+                    + "/" + str(row[prefix + "_N"])
+                    for value in _CHOICE_VALUES + ("fehlend",)
+                )
+                lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
     if paired_rows:
         lines.append("## Paarvergleiche gegen base")
         lines.append("")
-        lines.append("| Fall | Stufe | Profil | Δ Hilfreichkeit |")
-        lines.append("|---|---:|---|---:|")
+        lines.append("| Fall | Stufe | Wiederholung | Modell | Profil | "
+                     "Delta Hilfreichkeit |")
+        lines.append("|---|---:|---:|---|---|---:|")
         for row in paired_rows:
             lines.append(
                 "| " + str(row["case_id"])
                 + " | " + str(row["hint_level"])
+                + " | " + str(row["repetition"])
+                + " | " + str(row["model"])
                 + " | " + str(row["profile_id"])
                 + " | " + str(row["delta"])
                 + " |"
@@ -521,11 +681,17 @@ def _render_report(
     lines.append("## Grenzen")
     lines.append("")
     for note in [
-        "Fehlende/fehlgeschlagene Aufrufe sind im Rohdatensatz enthalten "
-        "und werden nicht still entfernt.",
-        "Nicht bewertbare mathematische Attribute bleiben unbestimmt "
-        "(inconclusive) und zählen nicht als bestanden.",
-        "Bewertungen fehlen teilweise; Kennzahlen weisen n aus.",
+        "Nur execution_source=live_tutor_api wird ausgewertet; Checks und "
+        "Ratings fuer Offline-Demos, unbekannte oder ersetzte Antworten "
+        "fliessen nicht in Inhaltskennzahlen ein.",
+        "Fehlende/fehlgeschlagene Aufrufe bleiben im Rohdatensatz. "
+        "Retry-Erfolge sind keine zusaetzlichen unabhaengigen Antworten.",
+        "Offenlegung mit status=inconclusive bleibt getrennt von "
+        "positiven Befunden und zaehlt nicht als bestanden oder vorhanden. "
+        "Ein fehlender Formeltreffer beweist keine Abwesenheit von Loesungsverrat.",
+        "Bewertungen fehlen teilweise; Kennzahlen weisen ihre Nenner aus.",
+        "Modellkey: requested_model, sonst zurueckgegebener Alias, sonst "
+        "server_default (tatsaechlicher Alias unbekannt).",
         "Telemetrie (Token, Upstream-Versuche) laut Manifest unbekannt.",
     ]:
         lines.append("- " + note)

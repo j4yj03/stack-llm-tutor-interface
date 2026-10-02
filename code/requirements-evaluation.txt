@@ -11,5 +11,12 @@ requests>=2.31
 # (ohne sympy bleiben entsprechende Checks ausdrücklich "inconclusive"):
 sympy>=1.12
 
-# Optional: Analyse-Notebook (liest nur gespeicherte Laufartefakte):
-jupyterlab>=4.0
+# Notebook-Testbench: Kontextwahl, Tabellen, Diagramme und Bewertungsformular.
+jupyterlab>=4.0,<5
+ipywidgets>=8.1,<9
+pandas>=2.2,<4
+matplotlib>=3.8,<4
+
+# Offline-Ausfuehrung und Strukturpruefung der Notebooks.
+nbformat>=5.9,<6
+nbclient>=0.10,<1
