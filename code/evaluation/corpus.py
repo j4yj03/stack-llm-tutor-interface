@@ -8,7 +8,8 @@ Verantwortung:
 
 Der Korpus trennt strikt:
 - tutor_context: pool an Daten, die (profilabhängig) an den Tutor gehen
-- evaluation_only: Referenzen/Provenienz — nie im Tutor-Request
+- evaluation_only: Referenzen/Provenienz; Schritte/Endloesung nur fuer
+  explizite Loesungsprofile, keine Bewertungsmetadaten im Tutor-Request
 """
 
 import hashlib

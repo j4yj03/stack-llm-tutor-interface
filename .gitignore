@@ -13,6 +13,7 @@ email.txt
 *.db
 
 code/.ipynb_checkpoints/*
+**/.ipynb_checkpoints/
 
 # Evaluation: Laufartefakte und Rohexporte nicht committen
 code/evaluation/runs/*

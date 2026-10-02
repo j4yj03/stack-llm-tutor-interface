@@ -29,7 +29,11 @@ Ein Fall = instanziierte Aufgabe + konkrete Antwort + Bewertung
   Feedback, Ziele, Regeln).
 - `evaluation_only`: Referenzendlösung, Äquivalentformen, geordnete
   verifizierte Schritte, erwartete Diagnose, Prüfstatus, Provenienz.
-  **Fließt nie in einen Request.**
+  Referenzschritte/-endloesung werden nur bei entsprechenden Profilen
+  in den Tutor-Request uebernommen. Beim Schritteprofil geht die
+  Endloesung als interner Guard-Wert mit, auch wenn sie im Prompt
+  gesperrt bleibt. Aequivalentformen, erwartete Diagnose, Pruefstatus
+  und Provenienz bleiben ausschliesslich Bewertungsdaten.
 - Referenzen stammen aus STACK-/Moodle-Exporten (Instanz + PRT-Ergebnis +
   Antwort eindeutig verknüpft) oder sind als `synthetic_fixture`
   gekennzeichnet. Keine Forschungsfreigabe ohne Beleg.
@@ -38,6 +42,11 @@ Ein Fall = instanziierte Aufgabe + konkrete Antwort + Bewertung
 Freigabe (kann abgeleitet werden, wird nicht behauptet):
 `verification.mathematics_status=verified` ist Pflicht für den Hauptlauf
 (`allow_unverified_cases=false`). Fixtures laufen nur im Pilot/Tooling.
+
+Mitgeliefert: 12 synthetische Faelle zu vier instanziierten Funktionen
+(zwei Kettenregel-, zwei Produktregelvarianten), darunter neun Fehlerfaelle,
+zwei korrekte Kontrollen und eine Syntax-/Prompt-Injection-Kontrolle.
+Die Testbench waehlt daraus standardmaessig vier Fehlerfaelle aus.
 
 ## 3. Versuchsbedingungen
 
@@ -67,6 +76,8 @@ Bestehende Doppelprüfung (`app/prompt_builder.py`) wird nicht abgeschwächt.
 - Seriell, konservativ 35 logische Requests/h (SAIA kann intern einen
   zweiten Versuch je Request auslösen); Fehler und unklare Versuche
   verbrauchen Budget.
+  Bei Resume/Kernelneustart wird das Budget desselben Laufs aus dem
+  Journal rekonstruiert; parallele Nutzung anderer Laeufe wird nicht erfasst.
 - Kein automatischer Retry; `--retry-failed` ist manuell und schließt
   unklare Transportversuche aus.
 - Reihenfolge: deterministische Mischung je Lauf (`order_seed`); Pilot- und
@@ -74,7 +85,16 @@ Bestehende Doppelprüfung (`app/prompt_builder.py`) wird nicht abgeschwächt.
 - Kernentwurf (nach Freigabe des Korpus):
   `12 Fehlerfälle × 5 Basisprofile × Stufen {1,3} × 2 Wiederholungen` =
   240; plus `steps`-Vergleich (24) und beschriftete Kontrollen. Pilot:
-  ~15–20 Requests auf Fixtures (Demonstrationskennzeichnung).
+  kleine Laeufe auf Fixtures (Demonstrationskennzeichnung). Das Notebook
+  plant standardmaessig 4 Faelle x 3 Profile x 2 Stufen = 24 Jobs.
+
+Notebook `code/evaluation/notebooks/testbench.ipynb`: `MODE='demo'` fuehrt
+handgeschriebene, als `offline_demo` markierte Beispielantworten ohne
+LLM/Netzwerk vor. `MODE='live'` erfordert ein explizites Modell und
+`EXECUTE_LIVE=True`; `MODE='analyze'` liest vorhandene Laufartefakte.
+Kontextwahl per Checkboxen (`custom`) oder festen Profilen. Der lokale
+Promptpreview ist keine Beobachtung des Serverprompts. Inputs werden
+pro Lauf eingefroren, Aenderungen erfordern einen neuen `RUN_ID`.
 
 ## 5. Auswertung
 
@@ -84,18 +104,26 @@ Ebenen getrennt (kein Kompensations-Mittelwert):
 2. **Manipulationsprüfung**: Profil/Optionen/Prompt-Konsistenz
    (`checks.jsonl`, Check-Versionen).
 3. **Offenlegung**: literal + Äquivalentformen + begrenzte symbolische
-   Prüfung (sympy optional); Parse-Fehlschlag = `inconclusive`, niemals
-   "nicht enthalten".
+   Prüfung (sympy optional, AST-Allowlist ohne eval); kein positiver Treffer
+   und Parse-Fehlschlag = `inconclusive`, niemals "nicht enthalten".
 4. **Bewertung (rubric-1.0)**: Binärflags (fachlicher Fehler, Widerspruch,
    erfundene Diagnose, Stufeneinhaltung, Lösung, unzulässiger Verrat) und
    Likert 1–5 (Passung, Verständlichkeit, Hilfreichkeit, Aktivierung,
    Präzision). Blind gegenüber Modell/Profil (neutrale `review_id`).
 5. **Vergleiche**: gepaarte Differenzen gegen `base` innerhalb desselben
-   Falls/Stufe/Wiederholung; Wiederholungen nicht als unabhängige Aufgaben.
+   Falls/Stufe/Wiederholung/Modells; Wiederholungen nicht als unabhängige Aufgaben.
 6. **Bericht**: `derived/summary.csv`, `paired_comparisons.csv`,
    `report.md`; Notebooks lesen dieselben Artefakte — `testbench.ipynb`
    führt zusätzlich den kompletten Workflow aus (Live-Gate
-   `EXECUTE_LIVE=True` entspricht `run --execute-live`).
+    `EXECUTE_LIVE=True` entspricht `run --execute-live`).
+
+Offline-Demos, einschliesslich ihrer Checks und Ratings, sind aus
+Live-/Forschungskennzahlen ausgeschlossen. Fuer Inhaltskennzahlen
+zaehlt nur die letzte erfolgreiche Antwort pro Job; alle Fehlversuche
+bleiben in der technischen Bilanz. Der neutral geblendete Bewertungsbogen
+enthaelt Referenzdaten und `rater_id`; Bewertungen koennen im Notebook
+oder als CSV eingegeben werden. Eine echte Verblindung erfordert, die
+Profil-/Modellansichten den Bewertern nicht vorab zu zeigen.
 
 Berichtspflichten: Fehlversuche bleiben sichtbar; jede Quote mit Abdeckung
 (n und N); Bewertungslücken als n ausweisen; keine allgemeine

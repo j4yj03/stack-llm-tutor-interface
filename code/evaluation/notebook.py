@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from evaluation.corpus import (
+    case_profile_eligible,
     load_cases,
     load_profiles,
     sha256_json,
@@ -102,11 +103,7 @@ def prepare_run(
     errors = validate_experiment(experiment, selected, profiles)
     if errors:
         raise ValueError("\n".join(errors))
-    from evaluation.runner import build_plan
-
     # Check eligibility before writing a directory with no executable jobs.
-    from evaluation.corpus import case_profile_eligible
-
     if not any(
         case_profile_eligible(case, profile, allow_unverified_cases) is None
         for case in selected for profile in profiles.profiles
@@ -197,7 +194,7 @@ def write_demo_results(run_dir: Path) -> List[dict]:
     }
     disclosure_job = next(
         (job["job_id"] for job in jobs
-         if not manifest["hint_policy"][str(job["hint_level"])] ["include_final_answer"]),
+         if not manifest["hint_policy"][str(job["hint_level"])]["include_final_answer"]),
         None,
     )
     records = []

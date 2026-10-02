@@ -35,10 +35,12 @@ def make_run_dir(tmp_path: Path) -> Path:
     experiment_path_small.write_text(
         json.dumps(experiment, ensure_ascii=False), encoding="utf-8"
     )
+    corpus_path = tmp_path / "cases.jsonl"
+    corpus_path.write_bytes((DATA_DIR / "example_cases.jsonl").read_bytes())
     create_run(
         run_dir=run_dir,
         experiment_path=experiment_path_small,
-        corpus_path=DATA_DIR / "example_cases.jsonl",
+        corpus_path=corpus_path,
         profiles_path=DATA_DIR / "context_profiles.json",
         base_url="http://tutor.test",
     )
@@ -214,7 +216,7 @@ def test_resume_aborts_on_changed_corpus(tmp_path):
     Runner(run_dir=run_dir, transport=fake_transport_factory(body=success_body()),
            sleep=ManualClock().sleep, clock=ManualClock().clock
            ).run(execute_live=True)
-    corpus_path = DATA_DIR / "example_cases.jsonl"
+    corpus_path = Path(load_manifest(run_dir)["paths"]["corpus"])
     original = corpus_path.read_text(encoding="utf-8")
     try:
         corpus_path.write_text(original + "\n", encoding="utf-8")
@@ -225,6 +227,23 @@ def test_resume_aborts_on_changed_corpus(tmp_path):
                    ).run(execute_live=True, resume=True)
     finally:
         corpus_path.write_text(original, encoding="utf-8")
+
+
+def test_resume_keeps_the_budget_from_previous_kernel(tmp_path):
+    run_dir = make_run_dir(tmp_path)
+    failing = fake_transport_factory(status=500, body={"detail": "x"})
+    first_clock = ManualClock()
+    Runner(run_dir=run_dir, transport=failing,
+           sleep=first_clock.sleep, clock=first_clock.clock).run(execute_live=True)
+    manifest = load_manifest(run_dir)
+    manifest["max_generations_per_hour"] = len(load_plan(run_dir))
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    resumed_clock = ManualClock()
+    resumed = Runner(run_dir=run_dir, transport=fake_transport_factory(body=success_body()),
+                     sleep=resumed_clock.sleep, clock=resumed_clock.clock)
+    stats = resumed.run(execute_live=True, resume=True, retry_failed=True)
+    assert stats["success"] == stats["planned"]
+    assert sum(resumed_clock.sleeps) > 3500
 
 
 def test_in_flight_attempt_is_marked_ambiguous_on_resume(tmp_path):

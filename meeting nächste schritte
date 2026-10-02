@@ -26,3 +26,18 @@ Freitag 04.09.26
 -	Testdata
 
 - 	https://docs.hpc.gwdg.de/services/ai-services/chat-ai/models/index.html
+
+
+
+Freitag 2.10.26
+
+what would happen if we didn't supply any interface?
+	- student would use generall ai-Specialist_tools
+		- maybe the llm tutor, motivates
+
+	- data governance
+	
+	- find evaluation metrics (how "good" is the llm tutor)
+		- have a set of possible error
+			- what is the next answer of the llm tutor
+			- use another llm for rating the questions/error/result

@@ -8,8 +8,10 @@ didaktischer Auswertung. Konzept und Begründung: `docs/evaluation_protocol.md`
 ## Grundregeln
 
 1. **Kein Import von `app.main`**: Die Suite nutzt ausschließlich die
-   reale HTTP-Schnittstelle (`POST /api/tutor/start`) und berührt weder
-   die produktive SQLite-Datenbank noch die Serverkonfiguration.
+    reale HTTP-Schnittstelle (`POST /api/tutor/start`) und berührt weder
+    die produktive SQLite-Datenbank noch veraendert sie die Serverkonfiguration.
+    Die lokale Notebook-Vorschau importiert nur Schema-/Promptmodule;
+    Live-Checks verwenden ausschliesslich die API-`prompt_messages`.
 2. **Kein Netz ohne Freigabe**: `validate` und `plan` sind offline.
    Nur `run --execute-live` sendet Requests; vorhandene API-Keys aktivieren
    nichts von selbst.
@@ -18,8 +20,11 @@ didaktischer Auswertung. Konzept und Begründung: `docs/evaluation_protocol.md`
 4. **Alle zehn Kontextschalter explizit**: Bedingungen hängen nicht von
    `.env`-Defaults ab.
 5. **Korpus trennt Input und Bewertung**: `tutor_context` (potentielle
-   Request-Felder) vs. `evaluation_only` (Referenzen, Prüfstatus,
-   Provenienz — niemals im Request).
+    Request-Felder) vs. `evaluation_only` (Referenzen, Prüfstatus,
+    Provenienz). Referenzschritte/-endloesung werden nur fuer die
+    entsprechenden Profile in den Request uebernommen; beim Schritteprofil
+    dient die Endloesung zudem als interner Guard-Wert. Bewertungsstatus,
+    Aequivalentformen und Provenienz gehen niemals an den Tutor.
 6. **Keine stillen Retries, kein stiller Modellwechsel**, unklare
    Transportversuche bleiben unklar; Resume wiederholt nichts automatisch.
 7. **Telemetrie ehrlich**: nicht beobachtbare Werte (Token, Upstream-Versuche)
@@ -32,13 +37,14 @@ didaktischer Auswertung. Konzept und Begründung: `docs/evaluation_protocol.md`
 | `models.py` | Strenge Datenmodelle (unbekannte Felder → Fehler) |
 | `corpus.py` | Fall-/Profil-/Experiment laden, Eignung, Request-Payload |
 | `runner.py` | Plan, Manifest, Budget, Versuchsjournal, Resume, Transport |
+| `notebook.py` | Auswahl-Snapshots, lokale Prompt-Vorschau, explizit markierte Offline-Demo |
 | `checks.py` | Automatische Prüfungen + begrenzte symbolische Formelprüfung |
 | `report.py` | Review-Export/-Import, Aggregationen, `derived/report.md` |
 | `__main__.py` | CLI (validate/plan/run/check/review-export/review-import/report) |
 | `rubric.md` | Bewertungsraster (rubric-1.0) mit Skalenankern |
 | `data/` | `context_profiles.json`, Beispielkorpus (`example_cases.jsonl`, synthetische Fixtures), später `cases_research.jsonl` (verifizierte Exporte) |
 | `experiments/` | `pilot.json` (Werkzeug-Pilot), `context_core.json` (Hauptvergleich, wartet auf verifizierten Korpus) |
-| `notebooks/testbench.ipynb` | **Komplette Test-Bench**: führt alle Phasen (validate → plan → run → check → review → report → Analyse) über dieselben Funktionen wie das CLI aus; Live-Ausführung nur mit explizitem Gate `EXECUTE_LIVE = True` |
+| `notebooks/testbench.ipynb` | **Interaktive Testbench**: Fall-/Profil-/Stufenwahl, Kontext-Checkboxen, Request-/Prompt-Vorschau, Demo/Live/Analyse, Checks, Ratings im Notebook, Tabellen/Diagramme und Export |
 | `notebooks/auswertung.ipynb` | Reine Offline-Analyse gespeicherter Läufe; „Run All“ macht keine Netzaufrufe |
 | `imports/` | Rohdaten der späteren STACK-/Moodle-Exporte (git-ignoriert) |
 | `runs/` | Laufartefakte (git-ignoriert) |
@@ -65,6 +71,69 @@ sie nicht automatisch zu einem Regelverstoß). Der Bericht führt
 
 Arbeitsverzeichnis `code/`; eine isolierte Tutor-Instanz mit eigener
 `DATABASE_PATH` nutzen (nicht die produktive DB).
+
+### Notebook
+
+Python 3.11 wird fuer die separate Evaluationsumgebung empfohlen:
+
+```bash
+python -m pip install -r requirements-evaluation.txt
+python -m jupyterlab evaluation/notebooks/testbench.ipynb
+```
+
+1. Mit `MODE = 'demo'` alle Zellen ausfuehren: keine Netzwerkaufrufe,
+   keine LLMs und keine Datenbank. Die handgeschriebenen Demoausgaben
+   zeigen die Checks einschliesslich einer absichtlich offengelegten Loesung.
+2. Faelle, Profile und Stufen auswaehlen; fuer `custom` die Kontextfelder
+   per Checkbox festlegen. Standard: vier Faelle, drei Profile, Stufen 1/3,
+   eine Wiederholung = 24 Jobs. Fuer einen Vergleich `base` beibehalten.
+3. Planungszelle ausfuehren und Request/Prompt-Vorschau kontrollieren.
+   Korpus, Profile und Experiment werden unter `runs/<RUN_ID>/inputs/`
+   eingefroren. Geaenderte Konfiguration erfordert einen neuen `RUN_ID`.
+4. Fuer echte Tutorhinweise: `MODE = 'live'`, explizites `MODEL` aus der
+   Server-Allowlist, neue `RUN_ID`, `BASE_URL` der isolierten Instanz und
+   `EXECUTE_LIVE = True`. Zugangsdaten bleiben auf dem Server.
+5. Automatische Checks und Tabellen auswerten; Hinweise fallweise unter
+   verschiedenen Profilen vergleichen. Fachliche Ratings im Notebookformular
+   speichern oder den neutralen CSV-Bogen extern bewerten und importieren.
+6. Berichtszellen nach der Bewertung erneut ausfuehren. CSVs, Diagramme,
+   Referenzdaten und Rohprompts liegen nur im git-ignorierten Laufordner.
+   `MODE = 'analyze'` mit derselben `RUN_ID` laedt einen bestehenden Lauf
+   ohne neue API-Aufrufe.
+
+Der Beispielkorpus enthaelt **12 synthetische Faelle / 4 Aufgabeninstanzen**:
+
+| Funktion | Falltypen | Anzahl |
+|---|---|---:|
+| `-5*exp(x^2-2*exp(x))` | innere Ableitung fehlt/falsch, Faktor fehlt, korrekte Aequivalentform, Prompt-Injection | 5 |
+| `x^2*sin(x)` | Produktregel-Summand fehlt, Potenzableitung falsch, korrekte Antwort | 3 |
+| `3*exp(2*x+1)` | innere Ableitung fehlt, konstanter Faktor fehlt | 2 |
+| `x^3*exp(x)` | Produktregel-Summand fehlt, Potenzableitung falsch | 2 |
+
+Alle bleiben `draft`, `synthetic_fixture`, `pending`: symbolische lokale
+Plausibilitaetstests sind keine STACK-/PRT-Verifizierung. Fuer den Hauptlauf
+`CORPUS_FILE` auf belegte, instanzbezogene Faelle setzen und
+`ALLOW_UNVERIFIED_CASES = False` verwenden. Fehlende Falldaten fuehren zu
+Ausschluessen, nicht zu stillen Kontextaenderungen. Fuer separate
+Schritte-/Loesungsuntersuchungen `steps` auf Stufe 3 bzw. `solution` auf
+Stufe 4 auswaehlen; niedrige Stufen bleiben trotz gesetzter Checkbox gesperrt.
+
+Ratingboegen sind ohne Modell-/Profilspalten. Fuer eine wirklich blinde
+Expertenbewertung nicht vorab die Profilansichten zeigen und
+`review_mapping.json` nicht weitergeben. Leere Felder bleiben fehlend;
+fachliche Fehler, Stufeneinhaltung und Sprachqualitaet werden getrennt
+berichtet. Keine Endloesung erkannt bedeutet `inconclusive`, nie ein
+Abwesenheitsbeweis. Demoantworten und ihre Checks/Ratings sind aus
+Forschungskennzahlen ausgeschlossen.
+
+Das Notebook findet `code/` auch von seinem Unterverzeichnis aus.
+Optional: `TUTOR_EVALUATION_RUNS` fuer einen anderen Artefaktordner und
+`TUTOR_BASE_URL` fuer eine andere Tutorinstanz. Nach Kernelneustart kann
+`RESUME = True` offene Jobs fortsetzen; das Stundenbudget wird fuer diesen
+Lauf aus dem Journal rekonstruiert. Nutzung anderer Laeufe/Clients wird
+nicht vom lokalen Runnerbudget erfasst.
+
+### CLI
 
 ```bash
 # 1) Korpus/Experiment prüfen (offline)
@@ -99,6 +168,7 @@ python -m evaluation report --run-dir evaluation/runs/pilot-001
   und wird bei Resume nicht wiederholt.
 - **Budget**: Fenster über *abgeschickte* logische Requests (Fehler
   zählen mit), wegen möglicher zwei Upstream-Versuche je Request.
+  Bei Resume/Kernelneustart wird das Budget desselben Laufs rekonstruiert.
 - **Verifizierung**: `allow_unverified_cases=false` (Hauptlauf) schließt
   Fälle ohne belegte Mathematik aus; der Pilot (Fixtures) ist ein
   Demonstrationsslauf und im Bericht markiert.

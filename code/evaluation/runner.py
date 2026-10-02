@@ -491,15 +491,15 @@ class Runner:
                 "Live-Ausführung erfordert explizite Freigabe "
                 "(--execute-live). Ohne Freigabe gibt es keinen Netzaufruf."
             )
+        manifest = load_manifest(self.run_dir)
+        if manifest.get("execution_mode") == "offline_demo":
+            raise RunnerError("Ein Demolauf darf nicht gegen die Live-API ausgefuehrt werden.")
         if not resume and _read_jsonl(self.run_dir / GENERATIONS_FILE):
             raise RunnerError(
                 "Run-Verzeichnis enthält bereits Ergebnisse. "
                 "Für Fortsetzung --resume verwenden."
             )
 
-        manifest = load_manifest(self.run_dir)
-        if manifest.get("execution_mode") == "offline_demo":
-            raise RunnerError("Ein Demolauf darf nicht gegen die Live-API ausgefuehrt werden.")
         verify_manifest(self.run_dir, manifest)
         jobs = load_plan(self.run_dir)
         repairs = _repair_in_flight(self.run_dir)
@@ -551,6 +551,20 @@ class Runner:
             _write_json(self.run_dir / MANIFEST_FILE, manifest_copy)
 
         limit = int(manifest["max_generations_per_hour"])
+        # Notebook/kernel restarts must not reset the budget of this run.
+        wall_now = datetime.fromisoformat(self.wall_clock())
+        clock_now = self.clock()
+        self.dispatch_times = []
+        for event in _read_jsonl(self.run_dir / EVENTS_FILE):
+            if event.get("event") != "attempt_started":
+                continue
+            try:
+                age = (wall_now - datetime.fromisoformat(event["ts_utc"])).total_seconds()
+            except (KeyError, ValueError, TypeError) as error:
+                raise RunnerError("Zeitstempel im Versuchsjournal ungueltig.") from error
+            if age < BUDGET_WINDOW_SECONDS:
+                self.dispatch_times.append(clock_now - max(age, 0.0))
+        self.dispatch_times.sort()
         last_attempt_by_job: Dict[str, str] = {}
         for record in generations:
             last_attempt_by_job[record["job_id"]] = record["attempt_id"]

@@ -62,6 +62,19 @@ einem Jupyter-Notebook zur Offline-Analyse. Bedienung, Regeln
 (Live-Gate `--execute-live`, Budget, Versuchsjournal) und Zielformate:
 `evaluation/README.md` und `docs/evaluation_protocol.md`.
 
+Interaktiver Einstieg mit Beispielaufgaben und konfigurierbarem Kontext:
+
+```bash
+python -m pip install -r requirements-evaluation.txt
+python -m jupyterlab evaluation/notebooks/testbench.ipynb
+```
+
+Das Notebook startet als Offline-Demo ohne LLM-Aufrufe. Es bietet
+Aufgaben-/Profilwahl, Kontext-Checkboxen, Promptvorschau, automatisierte
+Checks, Bewertungsformulare, Diagramme und CSV-/Markdown-Export.
+Live-Laeufe benoetigen eine ausdrueckliche Freigabe und eine isolierte
+Tutorinstanz; synthetische Beispiele sind keine Forschungsdaten.
+
 ## Wichtige Regeln
 
 - `.env` enthält den SAIA-API-Key und wird durch `.gitignore` vom Commit ausgeschlossen.
