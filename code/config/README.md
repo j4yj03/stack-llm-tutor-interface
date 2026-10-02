@@ -116,6 +116,7 @@ Dateiaenderungen oder spaetere Envwerte erzeugen keinen Config-GET-Hot-Reload.
 | `TUTOR_ASK_ACTIVATING_QUESTION` | `1` | Aktivierende Rueckfrage als allgemeine Tutorregel |
 | `TUTOR_HIDE_HINT_LEVEL` | `1` | Verbot interner Stufennennung im Tutoroutput; nicht der HTML-Debugschalter |
 | `TUTOR_ENFORCE_WORD_LIMIT` | `1` | Wortlimit im Tutorprompt und dessen Evaluationscheck aktiv; kein Produktionsfilter |
+| `TUTOR_LATEX_NOTATION` | `1` | LaTeX-Notationsregel im Tutorprompt (inline `\( \)`, abgesetzt `$$ $$`) fuer die KaTeX-Anzeige; keine Outputfilterung oder Notationskonvertierung |
 | `HINT_LEVELS_PATH` | `config/hint_levels.json` | Basisdatei, relativ zu `code/` oder absolut |
 | `TUTOR_HINT_POLICY_JSON` | leer | Partieller/voller Datenoverride bestehender Stufen |
 

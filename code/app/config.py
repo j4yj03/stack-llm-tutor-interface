@@ -264,6 +264,10 @@ TUTOR_ASK_ACTIVATING_QUESTION = _env_bool("TUTOR_ASK_ACTIVATING_QUESTION", True)
 TUTOR_HIDE_HINT_LEVEL = _env_bool("TUTOR_HIDE_HINT_LEVEL", True)
 TUTOR_ENFORCE_WORD_LIMIT = _env_bool("TUTOR_ENFORCE_WORD_LIMIT", True)
 
+# LaTeX-Notationsregel im Tutormodus: 1 fordert LaTeX-Ausgabe mit \( \)/$$ $$
+# (Anzeige der Formeln auf der Tutorseite via KaTeX); 0 entfernt diese Regel.
+TUTOR_LATEX_NOTATION = _env_bool("TUTOR_LATEX_NOTATION", True)
+
 TUTOR_ADAPTIVE_ENABLED = _env_bool("TUTOR_ADAPTIVE_ENABLED", False)
 TUTOR_ADAPTIVE_AFTER_SECONDS = _env_float("TUTOR_ADAPTIVE_AFTER_SECONDS", 120.0, 0.0)
 TUTOR_ADAPTIVE_STEP = _env_int("TUTOR_ADAPTIVE_STEP", 1, 1)

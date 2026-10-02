@@ -34,7 +34,7 @@ sie verbrauchen echte LLM-Aufrufe.
 | Datei | Inhalt |
 |---|---|
 | `conftest.py` | gemeinsame Fixtures: `hint_policy`, `prompt_builder`, `stack_context`, isolierter `chat_store` (tmp-SQLite) |
-| `test_api.py` | FastAPI-Endpunkte mit **gemocktem LLM** und isolierter SQLite-DB: HTML-Chat/Folgehints, Retry-Endpunkt (Wiederholung ohne Frage-Dublette, Versuchsstufe, Stufenregeln), exakter Debug-Prompt, Moodle-Varianten (`question_text`/`funktion`), Modell-/Längenvalidierung, Escaping, UUID-Fehler, API-Verlauf, HTTP 429/502, keine Rückstufung und Browser-LF/CRLF |
+| `test_api.py` | FastAPI-Endpunkte mit **gemocktem LLM** und isolierter SQLite-DB: HTML-Chat/Folgehints, Retry-Endpunkt (Wiederholung ohne Frage-Dublette, Versuchsstufe, Stufenregeln), exakter Debug-Prompt, Moodle-Varianten (`question_text`/`funktion`), Modell-/Längenvalidierung, Escaping, UUID-Fehler, API-Verlauf, HTTP 429/502, keine Rückstufung, Browser-LF/CRLF sowie KaTeX-Einbindung (SRI/no-referrer) und CAS-zu-LaTeX-Anzeige mit rohem Fallback |
 | `test_tutor_rules.py` | Gemockte echte API-Roundtrips: Stage 0, Requestflags bei Startwahl, effektiver Historiencap, Adaption/Simulationsauth, aktive Configidentitaet, begrenzte strukturierte Texte, additive DB-Migration und Task-/Skriptpayloads |
 | `test_task_loader.py` | Textbaustein-Validierung (`{funktion}`-Platzhalter, Länge) und Generik-Prüfung der echten Aufgaben: keine festen Beispielwerte in Frage text, Template, Lernzielen, Diagnosen und `given_data` |
 | `test_config.py` | Fail-fast-Umgebungsparsing, Stufen-/Token-/Temperaturgrenzen, Modi, Stage-0-Flags, Pfadaufloesung und Evaluationtokenpflicht |
@@ -42,6 +42,7 @@ sie verbrauchen echte LLM-Aufrufe.
 | `test_hint_policy.py` | Alle aktiven Stufen inklusive 0; Pflichtfelder/Typen, explizite Policydatei, JSON-/per-Level-Praezedenz und keine unsichere Templatierung |
 | `test_prompt_builder.py` | Rollen/Isolation, aktuelle Nachricht ohne Historie, Diagnoseherkunft, Modellanalyse, Tutor/General und strukturierte Antwortvorgabe |
 | `test_solution_disclosure.py` | Lösungspreisgabe: `solution_steps`/`final_answer` nur bei Doppel-Erlaubnis (Option **und** Stufe) im Kontext |
+| `test_math_notation.py` | Whitelist-Konvertierung STACK-/Maxima-Syntax nach LaTeX (nur Anzeige): typische Ausdrücke, Gleichungen, Fakultät, Fallback None für Prosa/unsichere Syntax, kein eval |
 | `test_moodle_snippets.js` | Node-eigene Tests mit VM-/DOM-/STACK-JS-Testdoubles: Input-Sync, Encoding, Zufallsformeln, sichere CASText-Einbettung, Diagnosebindung und asynchrone Fälle |
 | `test_chat_store.py` | UUIDs, Reihenfolge und Persistenz; Stufengrenzen aus `MIN_HINT_LEVEL`/`MAX_HINT_LEVEL`, Baseline-/Zustandsvertrag bei Erweiterungen beachten |
 | `test_llm_factory.py` | Backend-Wahl (`saia`/`litellm`-Alias/`ollama`), unbekannter Modus, Kompatibilitäts-Wrapper delegiert |

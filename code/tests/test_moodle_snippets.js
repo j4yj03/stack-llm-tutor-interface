@@ -182,7 +182,7 @@ test("URL query and HTML round-trip special characters without leaking markup", 
     assert.equal(url.searchParams.get("ans1"), answer);
     assert.equal(url.searchParams.get("funktion"), "f(x)=-5*%e^(x^2-2*%e^x)");
     assert.equal(url.searchParams.get("diagnosis"), diagnosis);
-    assert.equal(url.searchParams.get("hint_level"), "1");
+    assert.equal(url.searchParams.has("hint_level"), false);
     assert.equal(url.searchParams.has("model"), false);
     for (const encoded of ["%2B", "%25", "%26"]) assert.ok(url.search.includes(encoded));
     assert.match(app.output(), /target="_blank" rel="noopener noreferrer"/);

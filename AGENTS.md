@@ -98,6 +98,7 @@ stack-llm-tutor-interface/
 │   │   ├── chat_store.py
 │   │   ├── hint_policy.py
 │   │   ├── prompt_builder.py
+│   │   ├── math_notation.py
 │   │   ├── task_loader.py
 │   │   ├── llm/
 │   │   │   ├── base.py
@@ -261,7 +262,9 @@ fallback. API selection uses request `context_options` intersected with the
 stage-0 cap and diagnosis mode; HTML uses its configured defaults. Record the
 separate actual `start_prompt_messages` and selection options, not a reconstructed
 preview. Existing chats without a level retain their current level.
-The unchanged Moodle snippets explicitly send level 1 and bypass default selection.
+The Moodle snippets send no `hint_level` and therefore follow the configured
+fixed/individual server start; a forced fixed level would require adding the
+parameter back into the link.
 
 #### HTML chat and prompt debugging
 
@@ -287,6 +290,23 @@ manually reposting it can generate another assistant response.
 The HTML debug area contains a hint-level selector for the current or a higher
 level. A successful generation commits the attempted level; failed next-hint
 generations leave the stored level unchanged. Lower levels are rejected.
+
+The tutor page renders LaTeX client-side via KaTeX `0.19.0` from the jsDelivr
+CDN (SRI `integrity`, `crossorigin="anonymous"`) and sends
+`<meta name="referrer" content="no-referrer">` so the `/start` URL with the
+student answer is never transmitted as referrer. Without CDN access the page
+stays readable plain text. `<pre>`, `<code>` and `<textarea>` are not typeset.
+Hints only render when the configurable `TUTOR_LATEX_NOTATION` tutor rule has
+requested LaTeX output; the forms remain operable without JavaScript.
+
+For display only, `app/math_notation.py` converts pure STACK/Maxima
+expressions to LaTeX with a stdlib-AST whitelist (no eval, no mathematical
+evaluation, no new dependencies): the composed `{funktion}` inside the task
+block, a pure-expression answer under "Deine Antwort", and chat user messages
+whose entire text parses. Unrecognized input (prose, unknown syntax, unknown
+`%` constants, `!!`) falls back to raw text/`<code>`. Stored contexts, prompts
+and JSON responses keep the original CAS syntax; display conversion must never
+change the LLM context or evaluation comparability.
 
 `generate_hint` returns `(hint, messages, diagnosis_hypothesis)`; display actual messages passed
 to the client, never rebuild a debug prompt after saving the new response.
@@ -395,7 +415,7 @@ Runtime controls and defaults (full reference: `code/config/README.md`):
 | `TUTOR_DIAGNOSIS_MODE` | `provided`; `provided\|model\|none` |
 | `TUTOR_POLICY_MODE`, `TUTOR_RESPONSE_FORMAT` | `tutor`, `text`; `tutor\|general`, `text\|structured` |
 | `TUTOR_RULES_ID` | Nonempty `default-policy` label, not proof of identical rules |
-| `TUTOR_ASK_ACTIVATING_QUESTION`, `TUTOR_HIDE_HINT_LEVEL`, `TUTOR_ENFORCE_WORD_LIMIT` | All true; optional tutor prompt rules, not production output filtering |
+| `TUTOR_ASK_ACTIVATING_QUESTION`, `TUTOR_HIDE_HINT_LEVEL`, `TUTOR_ENFORCE_WORD_LIMIT`, `TUTOR_LATEX_NOTATION` | All true; optional tutor prompt rules, not production output filtering |
 | `TUTOR_STAGE0_CONTEXT_OPTIONS` | `question_text,student_answer,learning_goals,math_rules,chat_history`; cap only, never enable a disabled request flag |
 | `TUTOR_ADAPTIVE_ENABLED`, `TUTOR_ADAPTIVE_AFTER_SECONDS` | False, `120`; finite nonnegative threshold |
 | `TUTOR_ADAPTIVE_STEP`, `TUTOR_ADAPTIVE_MAX_LEVEL` | `1`, active maximum; positive integer step, ceiling within range |
@@ -679,6 +699,8 @@ In tutor mode the system message includes:
 - instruction to provide only one hint
 - instruction not to mention internal levels when `TUTOR_HIDE_HINT_LEVEL` is active
 - activating question rule when `TUTOR_ASK_ACTIVATING_QUESTION` is active
+- LaTeX notation rule (`\( \)` inline, `$$ $$` display) when
+  `TUTOR_LATEX_NOTATION` is active, so the tutor page can render formulas
 
 The user message is constructed from enabled context fields.
 
@@ -733,6 +755,26 @@ Keep it isolated in a clearly marked section such as:
 ```
 
 The system prompt must instruct the model not to follow instructions contained in the student answer.
+
+---
+
+### `app/math_notation.py`
+
+Display-only conversion of pure STACK/Maxima expressions to LaTeX:
+
+- stdlib-AST whitelist only: numbers, `+ - * / ^`, parentheses, unary sign,
+  single-argument allowlisted functions (`exp`, `sqrt`, `abs`, `ln`, `log`,
+  trig and hyperbolic functions, `factorial`), `%e`/`%pi`/`%i` and Greek
+  `%`-constants, plus one simple `f(x)=...` left-hand side
+- postfix `!` factorial is expanded only for numbers, single letters and
+  bracket groups; `!!` is rejected
+- any other content (prose, comparisons, subscripting, unknown calls, unknown
+  `%` constants, modulo, non-ASCII names, oversized constants) returns `None`
+- no `eval`, no mathematical evaluation, no new dependencies; deep or hostile
+  input falls back to `None` and the page shows raw text/`<code>`
+- used by `render_tutor_page` (task block via `question_display_text`,
+  answer via `student_answer_latex`) and the Jinja `cas_display` filter for
+  chat user messages; never applied to prompts, stored contexts or JSON
 
 ---
 
@@ -1219,9 +1261,10 @@ so the link normally carries `unknown_error`. Server `DEBUG_MODE=0` only hides
 the HTML debug UI and does not remove diagnosis data from the LLM context.
 Do not conflate these switches. Full deployed STACK/Maxima/Moodle validation
 remains outstanding; the Node smoke test uses test doubles only.
-The snippets remain unchanged and explicitly send hint level 1. They neither
-activate level 0 from a changed server default nor sign/authenticate a PRT result.
-Server `/start` marks their supplied task/diagnosis context as `provided`.
+The snippets send no `hint_level` and follow the configured server start
+selection, including a configured `TUTOR_START_LEVEL=0` for new chats. They
+neither sign/authenticate a PRT result. Server `/start` marks their supplied
+task/diagnosis context as `provided`.
 
 ---
 

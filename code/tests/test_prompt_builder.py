@@ -266,7 +266,8 @@ def test_model_analysis_respects_authoritative_evidence_and_score_selection(
 @pytest.mark.parametrize("flag,phrase", [
     ("TUTOR_ASK_ACTIVATING_QUESTION", "Stelle moeglichst eine aktivierende Rueckfrage."),
     ("TUTOR_HIDE_HINT_LEVEL", "Nenne die Hilfestufe oder Stufennummern nicht"),
-    ("TUTOR_ENFORCE_WORD_LIMIT", "Verwende hoechstens 100 Woerter.")
+    ("TUTOR_ENFORCE_WORD_LIMIT", "Verwende hoechstens 100 Woerter."),
+    ("TUTOR_LATEX_NOTATION", "Formuliere mathematische Formeln in deinem Hinweis als LaTeX")
 ])
 @pytest.mark.parametrize("enabled", [True, False])
 def test_tutor_rules_can_be_toggled_independently(
@@ -292,6 +293,7 @@ def test_general_comparator_omits_didactic_policy_but_keeps_safety(
     for omitted in (
         "Mathematik-Tutor", "AKTUELLE HILFESTUFE", "ZIEL:", "ERLAUBT:",
         "NICHT ERLAUBT", "Stufennummern", "Woerter", "aktivierende Rueckfrage",
+        "Formuliere mathematische Formeln",
         "genau eine kurze diagnostische Frage", prompt_builder.hint_policy.get(level)["goal"]
     ):
         assert omitted not in system

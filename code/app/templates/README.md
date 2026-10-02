@@ -16,8 +16,10 @@ und denselben gespeicherten `StackContext`.
 
 | Variable | Quelle | Zweck |
 |---|---|---|
-| `question_id`, `question_text` | gespeicherter StackContext; ursprünglich Moodle-Text oder Task-JSON | Aufgabenanzeige |
-| `student_answer` | Gespeicherter StackContext aus `ans1` | Urspruengliche bereitgestellte Antwort; kein Beleg einer Bewertung |
+| `question_id`, `question_text` | gespeicherter StackContext; ursprünglich Moodle-Text oder Task-JSON | Aufgabenanzeige (Rohdaten, z. B. fuer Tests/Debug) |
+| `question_text_display` | `question_display_text` aus `main.py` | Anzeigetext: komponierte `{funktion}` als LaTeX in `\( \)`, sonst unverändert |
+| `student_answer` | Gespeicherter StackContext aus `ans1` | Urspruengliche bereitgestellte Antwort; kein Beleg einer Bewertung; roh im `<code>`-Fallback |
+| `student_answer_latex` | `cas_to_latex` der Antwort | Anzeige als Formel, wenn der Antworttext ein reiner STACK-Ausdruck ist, sonst `None` |
 | `diagnosis_code`, `diagnosis_title` | Gespeicherter bereitgestellter Kontext | Historische Debuganzeige `STACK-Diagnose`, kein Verifizierungsbeleg |
 | `hint_level` | GET-Parameter bzw. Chat-State | Debug-Anzeige und Formularmechanik; für Studierende nicht sichtbar |
 | `model` | Modell-Allowlist-Auswahl | bleibt bei Folgehints erhalten |
@@ -43,7 +45,26 @@ und denselben gespeicherten `StackContext`.
 - Aufgabe und „Deine Antwort“ teilen sich eine Bubble. Eine separate „Weitere Hilfe“-Bubble existiert nicht mehr.
 - Hilfestufen-Dropdown im Debug-`<details>`: ruft erneut `GET /start` mit **derselben `chat_id`** und der gewählten Stufe auf (aktuelle Stufe vorausgewählt, Auswahl bis `MAX_HINT_LEVEL`). Die Aufgabe bleibt im serverseitigen Kontext; sie wird nicht erneut in Hidden-Feldern transportiert. Bei `MAX_HINT_LEVEL` entfällt das Formular.
 - Modellwahl bleibt in allen Formularen erhalten. URLs werden mit `request.url_for` erzeugt.
-- Die Seite enthält keine Skripte und funktioniert bei deaktiviertem JavaScript. Viewport, umbrechende Formeln/Debug-Daten und eine flexible Textarea unterstützen Mobilgeräte.
+- Die Seite funktioniert bei deaktiviertem JavaScript; Formulare sind
+  JavaScript-frei. Für die Formelanzeige lädt sie KaTeX `0.19.0` per CDN
+  (jsDelivr) mit SRI-`integrity` und `crossorigin="anonymous"`. Das
+  `<meta name="referrer" content="no-referrer">` verhindert, dass die
+  `/start`-URL (mit Studierendenantwort) als Referer an den CDN-Host geht.
+  Ohne erreichbares CDN bleibt alles lesbarer Text mit TeX-Delimitern.
+- KaTeX rendert `\( \)`, `$$ $$`, `\[ \]` und `$ $`. `<pre>`, `<code>` und
+  `<textarea>` werden nicht gesetzt — der Debug-Prompt und Eingabefelder
+  bleiben roh. Für Tutorhinweise fordert die konfigurierbare Regel
+  `TUTOR_LATEX_NOTATION=1` (Tutorprompt) LaTeX-Ausgabe an. Fehlformate bricht
+  `errorCallback` als Konsolenwarnung ab, statt die Seite zu stören.
+  Jinja2-Escaping bleibt vollständig aktiv; KaTeX liest nur Textknoten.
+- Reine STACK-/Maxima-Ausdrücke (CAS-Syntax wie `6*x^5`, `2*%e^(x^6-6*%e^x)`,
+  `f(x)=...`) werden **nur fuer die Anzeige** serverseitig nach LaTeX
+  konvertiert (`app/math_notation.py`, stdlib-AST-Whitelist, kein eval):
+  Aufgabe (komponierte `{funktion}`), „Deine Antwort" und reine
+  Ausdrucks-Nachrichten im Chat. Nicht erkennbare Eingaben (Prosa, unbekannte
+  Syntax, `!!`, unbekannte `%`-Konstanten) bleiben roh bzw. im `<code>`-Element.
+  Gespeicherter Kontext und LLM-Prompts enthalten weiterhin die CAS-Syntax;
+  die Anzeige hat keine Auswirkung auf Evaluation/Reproduzierbarkeit.
 - Debug-`<details>` zeigt den gespeicherten Diagnosekontext, Stufendropdown und
   tatsaechlichen Hintprompt sowie Optionsdaten. Auf erfolgreichen Generierungen
   werden effektive Flags nach Stage-0-/Diagnosefilter angezeigt; in den
@@ -69,8 +90,9 @@ in [../../moodle/README.md](../../moodle/README.md).
 ### Aktuelle Grenzen
 
 - `/start` ohne explizites Level nutzt feste/individuelle Serverstartwahl;
-  ein explizites `0` kann die Diagnosephase starten. Die unveraenderten
-  Moodle-Snippets senden `1` und umgehen diese Defaultauswahl.
+  ein konfiguriertes `TUTOR_START_LEVEL=0` startet neue Chats in der
+  Diagnosephase. Die Moodle-Snippets senden keine Stufe und folgen der
+  Serverstartwahl; bestehende Chats behalten ihre gespeicherte Stufe.
 - `general` und strukturierte Antworten verwenden dasselbe Template. Es
   zeigt weiterhin die historischen Tutorbezeichnungen; dies ist kein zweiter
   Promptpfad und keine aktivierte Tutorpolicy im General-Modus.

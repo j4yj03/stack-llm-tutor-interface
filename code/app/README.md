@@ -34,6 +34,7 @@ Moodle/STACK -> GET /start -> main.py
 | `chat_store.py` | UUID-Chats, Nachrichten, aktuelle Stufe, persistierte Baseline und Sessionzustand; Bereich `0..MAX_HINT_LEVEL` |
 | `hint_policy.py` | Konfigurierte Datei, JSON- und per-Level-Overrides; alle aktiven Stufen `0..MAX_HINT_LEVEL` vollstaendig und typgeprueft |
 | `prompt_builder.py` | System-Nachricht (Tutorrolle, Stufenregeln, Prompt-Injection-Schutz) + Kontext-Abschnitte je nach `ContextOptions`; Doppelprüfung bei `solution_steps`/`final_answer` (Option **und** Stufe) |
+| `math_notation.py` | Anzeige-Konvertierung reiner STACK-/Maxima-Ausdrücke nach LaTeX (stdlib-AST-Whitelist, kein eval, Fallback None); ändert keinerlei gespeicherte Kontexte oder Prompts |
 | `task_loader.py` | Lädt `tasks/*.json`, validiert gegen JSON-Schema (Draft 2020-12), erzwingt eindeutige `question_id`s; Fail-fast bei ungültigen Dateien |
 | `ollama_client.py` | Kompatibilitäts-Wrapper (`call_ollama_chat` u. a. delegieren an `app.llm.create_llm_client`) |
 
@@ -96,11 +97,13 @@ editierbarer Moodle-Link beweist kein Grading. Scoreflags bleiben unveraendert.
 Tatsaechlich bereitgestellte verifizierte STACK-/PRT-Ergebnisse duerfen in
 keinem Modus ueberschrieben werden; blosse Herkunftslabels verifizieren nichts.
 
-`TUTOR_ASK_ACTIVATING_QUESTION`, `TUTOR_HIDE_HINT_LEVEL` und
-`TUTOR_ENFORCE_WORD_LIMIT` steuern Zusatzregeln, alle standardmaessig `true`.
-Im General-Modus sind diese Tutorregeln inaktiv; die Sicherheitsregeln und
-Referenz-Doppelfreigaben gelten weiter. Wortlimits sind Promptanweisungen,
-keine Trunkierung oder vollstaendige Outputfilter.
+`TUTOR_ASK_ACTIVATING_QUESTION`, `TUTOR_HIDE_HINT_LEVEL`,
+`TUTOR_ENFORCE_WORD_LIMIT` und `TUTOR_LATEX_NOTATION` steuern Zusatzregeln, alle
+standardmaessig `true`. Die LaTeX-Regel fordert Formeln als `\( \)`/`$$ $$` an,
+damit die Tutorseite sie mit KaTeX rendert; CAS-Syntax in Aufgabe und Antwort
+wird nicht umgewandelt. Im General-Modus sind diese Tutorregeln inaktiv; die
+Sicherheitsregeln und Referenz-Doppelfreigaben gelten weiter. Wortlimits sind
+Promptanweisungen, keine Trunkierung oder vollstaendige Outputfilter.
 
 `TUTOR_RESPONSE_FORMAT=structured` verlangt genau ein JSON-Objekt mit
 `hint: string` und `diagnosis_hypothesis: string|null`. Eine nichtleere
@@ -137,6 +140,14 @@ nicht auf Stufe 4; Lösungsschritte und Endlösung bleiben leer. Die
 HTML-Flows aktivieren `include_learning_goals` im Default; eine angepasste
 `CONTEXT_OPTIONS`-Auswahl kann sie abwaehlen. Die Aufgaben-JSON liefert den
 Katalog der erlaubten Diagnosen.
+
+Fuer die Anzeige auf der Tutorseite konvertiert `math_notation.py` reine
+STACK-/Maxima-Ausdruecke nach LaTeX: die komponierte `{funktion}` im
+Aufgabenblock, eine reine Ausdrucksantwort unter „Deine Antwort" und
+Folgenachrichten im Chat, deren gesamter Text ein Ausdruck ist. Nicht
+erkennbare Eingaben (Prosa, unbekannte Syntax) bleiben roh bzw. im
+`<code>`-Element. Die Konvertierung ist ausschliesslich Anzeige: gespeicherter
+Kontext, Prompt und JSON-Antworten enthalten weiterhin die CAS-Syntax.
 
 Bei bestehendem `chat_id` muss die Kombination aus Aufgabe (Volltext oder
 komponierter Text), Antwort und Diagnose zum gespeicherten Kontext passen.

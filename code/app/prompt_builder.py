@@ -130,6 +130,13 @@ NICHT ERLAUBT:
                 rules.append(f"Verwende hoechstens {level['max_words']} Woerter.")
             if config.TUTOR_ASK_ACTIVATING_QUESTION:
                 rules.append("Stelle moeglichst eine aktivierende Rueckfrage.")
+            if config.TUTOR_LATEX_NOTATION:
+                rules.append(
+                    "Formuliere mathematische Formeln in deinem Hinweis als "
+                    "LaTeX: inline \\( ... \\) und abgesetzt $$ ... $$. "
+                    "Uebersetze dazu gegebene Berechnungssyntax wie exp(x), "
+                    "* oder ^ in mathematische LaTeX-Notation."
+                )
 
         if config.TUTOR_RESPONSE_FORMAT == "structured":
             rules.append(

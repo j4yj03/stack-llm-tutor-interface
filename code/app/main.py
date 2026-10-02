@@ -39,6 +39,7 @@ from app.llm import (
     LLMRateLimitError,
     create_llm_client
 )
+from app.math_notation import cas_to_latex
 from app.prompt_builder import PromptBuilder
 from app.runtime_config import configuration_hash, effective_context_options, public_configuration
 from app.schemas import (
@@ -74,6 +75,36 @@ HTML_CONTEXT_OPTIONS = ContextOptions()
 templates = Jinja2Templates(
     directory=str(TEMPLATE_DIR)
 )
+
+
+def cas_display_filter(value: str) -> str:
+    """Zeigt reine STACK-Ausdruecke als LaTeX; sonst unveraenderter Text."""
+    latex = cas_to_latex(value)
+    return "\\(" + latex + "\\)" if latex else value
+
+
+templates.env.filters["cas_display"] = cas_display_filter
+
+
+def question_display_text(stack: StackContext) -> str:
+    """Aufgabentext fuer die Anzeige: die komponierte Funktion wird als
+    LaTeX gesetzt; gespeicherter Kontext und Prompt bleiben unveraendert."""
+    text = stack.question_text
+    task = TASKS.get(stack.question_id) or {}
+    template = task.get("question_text_template")
+    if not template or template.count("{funktion}") != 1:
+        return text
+    prefix, suffix = template.split("{funktion}")
+    if (
+        len(text) <= len(prefix) + len(suffix)
+        or not text.startswith(prefix)
+        or not text.endswith(suffix)
+    ):
+        return text
+    latex = cas_to_latex(text[len(prefix):len(text) - len(suffix)])
+    if not latex:
+        return text
+    return prefix + "\\(" + latex + "\\)" + suffix
 
 
 @asynccontextmanager
@@ -461,7 +492,13 @@ def render_tutor_page(
             "chat_id": chat_id,
             "question_id": stack.question_id,
             "question_text": stack.question_text,
+            "question_text_display": question_display_text(stack),
             "student_answer": stack.student_answer,
+            "student_answer_latex": (
+                "\\(" + answer_latex + "\\)"
+                if (answer_latex := cas_to_latex(stack.student_answer))
+                else None
+            ),
             "diagnosis_code": stack.diagnosis_code or "unknown_error",
             "diagnosis_title": stack.prt_feedback,
             "hint_level": chat["current_hint_level"],

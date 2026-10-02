@@ -86,7 +86,8 @@ def test_public_configuration_records_effective_settings_without_secrets(hint_po
         "response_format": config.TUTOR_RESPONSE_FORMAT,
         "ask_activating_question": config.TUTOR_ASK_ACTIVATING_QUESTION,
         "hide_hint_level": config.TUTOR_HIDE_HINT_LEVEL,
-        "enforce_word_limit": config.TUTOR_ENFORCE_WORD_LIMIT
+        "enforce_word_limit": config.TUTOR_ENFORCE_WORD_LIMIT,
+        "latex_notation": config.TUTOR_LATEX_NOTATION
     }
     assert values["start"] == {
         "mode": config.TUTOR_START_MODE, "level": config.DEFAULT_HINT_LEVEL,

@@ -136,20 +136,24 @@ URL-Encoding und HTML-Escaping sind unterschiedliche Schritte.
 | `qid` | Konfigurierte Backend-Aufgaben-ID |
 | `diagnosis` | Zugeordneter PRT-Code, sonst `unknown_error` |
 | `ans1` | Aktueller Spiegelwert, nicht mathematisch normalisiert oder vorcodiert |
-| `hint_level` | Weiterhin explizit `1`; uebersteuert serverseitige Defaultstartwahl |
 | `model` | Nur bei nichtleerem `MODEL` |
 | `funktion` | Instanziierte Funktion `f({#v#})={#p#}`, maximal 5000 Zeichen; das Backend setzt sie in den generischen Textbaustein ein |
+
+Der Link sendet bewusst keine `hint_level`-Angabe: neue Chats nutzen die
+serverseitige Startwahl (`TUTOR_START_LEVEL`, `TUTOR_START_MODE`), bestehende
+Chats behalten ihre gespeicherte Stufe. Wer eine feste Stufe erzwingen will,
+ergänzt den Parameter wieder in der URL.
 
 ## Serverbedingungen
 
 Der Server akzeptiert `0..MAX_HINT_LEVEL`, Defaultmaximum 4. Fehlt die
 Startstufe, gelten `TUTOR_START_LEVEL=1` und `TUTOR_START_MODE=fixed|individual`;
 individuelle Auswahl braucht eine zusaetzliche LLM-Operation vor der Antwort.
-Der unveraenderte Snippetlink sendet ausdruecklich 1 und umgeht diese Auswahl.
-Diagnosephase 0 entsteht hier nur durch explizite Anforderung; sie wird nicht
-durch Aendern des Serverdefaults in vorhandene Level-1-Links hineingelesen.
-Ein eigener server_start-Vergleich braucht eine gezielt andere Anforderung,
-nicht eine Behauptung ueber unveraenderte Moodlelinks.
+Der Snippetlink sendet keine Stufe und nutzt genau diese Serverwahl; ein
+`TUTOR_START_LEVEL=0` startet neue Chats damit in der Diagnosephase.
+Bestehende Chats behalten ihre gespeicherte Stufe, auch wenn das Serverdefault
+spaeter geaendert wird. Ein eigener server_start-Vergleich braucht eine gezielt
+andere Anforderung, nicht eine Behauptung ueber Moodlelinks.
 
 Stage 0 erzeugt im Tutormodus eine kurze Diagnosefrage und begrenzt den
 angeforderten Kontext mittels `TUTOR_STAGE0_CONTEXT_OPTIONS`. Standardmaessig
@@ -290,7 +294,7 @@ Die Bridge uebernimmt ausschliesslich den gebundenen PRT-Code oder
 Modellhypothese ist davon getrennt und keine verbindliche mathematische
 Bewertung. Task-abgeleitete synthetische Testfaelle mit festen Beispielreferenzen
 liefern keine Referenz fuer eine andere Moodle-Zufallsvariante.
-`hint_level=1` allein ist kein Variantenschutz.
+Eine starre Startstufe in der URL allein ist kein Variantenschutz.
 
 ## Prüfung
 

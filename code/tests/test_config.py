@@ -90,6 +90,7 @@ def test_runtime_configuration_defaults(clean_configuration_environment):
         "TUTOR_ASK_ACTIVATING_QUESTION": True,
         "TUTOR_HIDE_HINT_LEVEL": True,
         "TUTOR_ENFORCE_WORD_LIMIT": True,
+        "TUTOR_LATEX_NOTATION": True,
         "TUTOR_ADAPTIVE_ENABLED": False,
         "TUTOR_ADAPTIVE_AFTER_SECONDS": 120.0,
         "TUTOR_ADAPTIVE_STEP": 1,
@@ -142,6 +143,7 @@ def test_runtime_configuration_defaults(clean_configuration_environment):
     ("TUTOR_ASK_ACTIVATING_QUESTION", "maybe"),
     ("TUTOR_HIDE_HINT_LEVEL", ""),
     ("TUTOR_ENFORCE_WORD_LIMIT", "maybe"),
+    ("TUTOR_LATEX_NOTATION", "maybe"),
     ("TUTOR_STAGE0_CONTEXT_OPTIONS", "answer"),
     ("EVALUATION_API_ENABLED", "maybe"),
     ("EVALUATION_JUDGE_TEMPERATURE", "nan"),
@@ -178,6 +180,7 @@ def test_runtime_environment_controls_are_independent(
         "TUTOR_ASK_ACTIVATING_QUESTION": "off",
         "TUTOR_HIDE_HINT_LEVEL": "false",
         "TUTOR_ENFORCE_WORD_LIMIT": "0",
+        "TUTOR_LATEX_NOTATION": "off",
         "TUTOR_STAGE0_CONTEXT_OPTIONS": "include_question_text;include_score"
     }
     for name, value in environment.items():
@@ -200,6 +203,7 @@ def test_runtime_environment_controls_are_independent(
     assert values["TUTOR_ASK_ACTIVATING_QUESTION"] is False
     assert values["TUTOR_HIDE_HINT_LEVEL"] is False
     assert values["TUTOR_ENFORCE_WORD_LIMIT"] is False
+    assert values["TUTOR_LATEX_NOTATION"] is False
     assert values["TUTOR_STAGE0_CONTEXT_OPTIONS"] == config._parse_context_options(
         "question_text,score"
     )

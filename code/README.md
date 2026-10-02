@@ -57,7 +57,8 @@ API-Dokumentation: `http://127.0.0.1:8000/docs`
   `TUTOR_START_LEVEL=1`. Stufe 0 erzeugt im Tutormodus eine kurze Diagnosefrage.
 - Ohne explizite Startstufe gilt `TUTOR_START_MODE=fixed|individual`.
   `individual` braucht vor dem Hinweis eine weitere LLM-Operation; eine
-  explizite Stufe umgeht diese Auswahl. Die Moodle-Snippets senden weiterhin `1`.
+  explizite Stufe umgeht diese Auswahl. Die Moodle-Snippets senden keine
+  Stufe und folgen damit der konfigurierten Serverstartwahl.
 - `TUTOR_DIAGNOSIS_MODE=provided|model|none` trennt bereitgestelltes
   Fehlerszenario, unabhaengige unsichere Modellhypothese und keine Diagnose.
   Synthetischer Fehlerkontext ist kein PRT-Befund; verifizierte Ergebnisse

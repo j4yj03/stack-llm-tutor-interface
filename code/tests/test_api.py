@@ -246,7 +246,13 @@ def test_start_renders_actual_prompt_and_script_free_forms(client, llm, start_pa
     assert str(escape(prompt)) in response.text
     assert '<pre id="debug-prompt">' in response.text
     assert '<textarea id="message" name="message"' in response.text
-    assert '<script' not in response.text.lower()
+    # Formulare bleiben ohne JavaScript bedienbar; Skripte sind nur die
+    # KaTeX-Einbindung, ohne Inline-Handler oder javascript:-URLs.
+    assert "javascript:" not in response.text.lower()
+    assert "onsubmit" not in response.text.lower()
+    assert "onclick" not in response.text.lower()
+    assert "onchange" not in response.text.lower()
+    assert 'src="https://cdn.jsdelivr.net/npm/katex@' in response.text
     assert 'name="chat_id"' in response.text
     assert llm.answer not in prompt  # The response was not yet part of the input.
     assert "<student_answer>" in prompt.replace("\\n", "\n")
@@ -265,6 +271,65 @@ def test_start_renders_actual_prompt_and_script_free_forms(client, llm, start_pa
     assert response.context["chat_messages"] == list(
         reversed(response.context["history"])
     )
+
+
+def test_tutor_page_loads_katex_without_referrer_leak(client, llm, start_params):
+    response = client.get("/start", params=start_params)
+
+    assert response.status_code == 200
+    assert '<meta name="referrer" content="no-referrer">' in response.text
+    assert 'href="https://cdn.jsdelivr.net/npm/katex@' in response.text
+    assert 'src="https://cdn.jsdelivr.net/npm/katex@' in response.text
+    assert 'integrity="sha384-' in response.text
+    assert 'crossorigin="anonymous"' in response.text
+    assert "renderMathInElement" in response.text
+    assert '"pre"' in response.text and '"code"' in response.text
+
+
+def test_pure_cas_answer_and_funktion_render_as_latex(client, llm, start_params):
+    start_params["funktion"] = "f(x)=2*%e^(x^6-6*%e^x)"
+    response = client.get("/start", params=start_params)
+
+    assert response.status_code == 200
+    # Aufgabe: komponierte Funktion als Formel; gespeicherter Kontext bleibt CAS.
+    assert (
+        "Gegeben ist die Funktion \\(f(x) = 2 \\cdot e^{x^{6} - 6 \\cdot e^{x}}\\)."
+        in response.text
+    )
+    assert "<code>" + start_params["funktion"] + "</code>" not in response.text
+    # Antwort: reine STACK-Syntax als Formel statt code-Element.
+    assert "\\(-5 \\cdot e^{x^{2} - 2 \\cdot e^{x}}\\)" in response.text
+    assert f"<code>{start_params['ans1']}</code>" not in response.text
+    assert response.context["question_text"].endswith(
+        "Gegeben ist die Funktion f(x)=2*%e^(x^6-6*%e^x). "
+        "Differenzieren Sie f einmal nach x."
+    )
+
+
+def test_non_expression_answer_stays_raw_in_code(client, llm, start_params):
+    start_params["ans1"] = "Das ist keine Formel"
+    response = client.get("/start", params=start_params)
+
+    assert response.status_code == 200
+    assert f"<code>{start_params['ans1']}</code>" in response.text
+    assert "student_answer_latex" in response.context
+    assert response.context["student_answer_latex"] is None
+
+
+def test_pure_expression_chat_message_renders_as_math(client, llm, start_params):
+    page = client.get("/start", params=start_params)
+    action, fields = read_form(page, "chat-form")
+    fields["message"] = "6*x^5"
+    reply = client.post(action, data=fields)
+
+    assert reply.status_code == 200
+    assert "\\(6 \\cdot x^{5}\\)" in reply.text
+    # Prosaworte im Chat bleiben unveraendert stehen.
+    action, fields = read_form(reply, "chat-form")
+    fields["message"] = "Warum brauche ich die innere Ableitung?"
+    second = client.post(action, data=fields)
+    assert second.status_code == 200
+    assert "Warum brauche ich die innere Ableitung?" in second.text
 
 
 def test_moodle_context_survives_html_chat_and_next_hint(client, llm, start_params):
@@ -600,8 +665,8 @@ def test_template_escapes_messages_and_debug_and_hides_system_history(
     fields["message"] = unsafe
     response = client.post(action, data=fields)
     assert response.status_code == 200
-    assert '<script' not in response.text
-    assert '<img' not in response.text
+    assert '<script>alert(' not in response.text
+    assert '<img src=x' not in response.text
     assert str(escape(unsafe)) in response.text
     assert "SYSTEM_ONLY_SENTINEL" not in response.text
     assert str(escape(response.context["prompt"])) in response.text
