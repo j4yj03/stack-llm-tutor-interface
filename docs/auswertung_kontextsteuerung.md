@@ -1,5 +1,116 @@
 # Auswertung: Kontextsteuerung und Erweiterbarkeit
 
+## Aktueller Abgleich: 2026-10-02
+
+**Status: technischer Nachtrag, keine empirischen Modellresultate.** Die
+Abschnitte 1-7 darunter sind eine historische Codeanalyse und bleiben als
+Arbeitsstand erhalten. Ihre damaligen Zeilenverweise, Defizitbehauptungen und
+Aenderungsvorschlaege sind nicht als aktuelle Vorgaben zu verwenden. Der neue
+Untersuchungsumfang steht in [eval-protocol-2](evaluation_protocol.md).
+
+### Verfügbarkeit und Sichtbarkeit
+
+`StackContext` kann Referenzschritte und Endloesung enthalten, ohne sie dem LLM
+zu zeigen. `PromptBuilder` prueft fuer beide Felder weiterhin Kontextoption
+**UND** aktive Stufenfreigabe. Eine eingeschaltete Endloesungsoption reicht auf
+einer verbietenden Stufe nicht aus. Ein interner API-Endloesungswert kann zudem
+die erlaubte Schrittfolge als Literal-Guard begrenzen. Die alte pauschale
+Behauptung, Loesungsdaten wuerden deshalb auf Stufe 1 mitgesendet, ist fuer den
+sichtbaren Prompt falsch; Datenpool, Request-Payload und Prompt sind zu trennen.
+
+Die zentrale `HintPolicy` ist die generische Laufzeitquelle. Legacy-Felder
+`tutor_policy`, `hint_levels` und `prompt_context_policy` bleiben aus
+Schema-/Datenformatgruenden in den Tasks, sind aber kein zweiter aktiver
+Eskalationsmechanismus. Die historische Empfehlung, diese Task-Policy wieder
+einzubauen, ist keine aktuelle Architekturvorgabe.
+
+### Aktuelle Steuerung
+
+| Ebene | Vorhandene Umsetzung | Empirische Pruefung |
+|---|---|---|
+| Kontext | Zehn API-Flags und `CONTEXT_OPTIONS`-Defaults | Angeforderte versus effektive Optionen und echte Promptabschnitte |
+| Stufe 0 | Diagnosefrage mit eigener `TUTOR_STAGE0_CONTEXT_OPTIONS`-Kappung | Sichtbarer Kontext und Informationsgewinn statt erzwungenem Rechenschritt-Rating |
+| Diagnose | `provided`, `model`, `none`; bei `model`/`none` kein gelieferter Code/Feedback | Unabhaengige Hypothese darf das erwartete Label nicht vorher sehen |
+| Regeln | Rolle, Stufenziele, erlaubte/verbotene Inhalte, Wortgrenzen, Frage-/Stufenanzeige | Aktive Policy und Konfigurationssnapshot/hash, nicht nur Profilname |
+| Generierung | Allowlist-Modell, Temperatur, Tokenlimit, Format, angeforderte Thinking-Steuerung | Konstant halten oder ausdruecklich als Kontrast benennen |
+| Start | Gemeinsame feste Baseline oder Modellwahl aus Initialantwort und angeforderten API-Optionen unter Stufe-0-Caps | Auswahlprompt/-optionen separat als `start_selection_context` pruefen; keine globalen HTML-Optionen |
+| Dialog | Aktuelle Nachricht auch ohne Historie; passive Zeit-plus-Verwirrung-Anpassung | Identische Skripte/Zeiten, keine automatische Timerantwort |
+
+Die Betriebsdefaults sind keine bereits optimierte Baseline: Start 1, `fixed`,
+`provided`, `tutor`, `text`, Adaptation aus. Minimum ist 0, Standardmaximum 4;
+andere Grenzen brauchen passende Policies und kompatible Clientlimits.
+Tutorregeln duerfen nach empirischer Auswahl geaendert werden, jedoch nicht
+innerhalb derselben gepinnten Bedingung.
+Die gemeinsame Baseline ist noch manuell anhand vorab festzulegender
+Pilotkriterien und konkreter Run-/Attempt-Belege auszuwaehlen. Es ist keine
+automatische Optimierungsfunktion implementiert. Die geladene App-Policy
+bleibt bis zum Neustart identisch fuer Generierung, Health-Hash und
+Konfigurations-GET; letzterer bietet keinen Hot-Swap.
+
+`base` ist Aufgabe plus Antwort unter der jeweiligen Serverpolicy. Es ist
+weder die empirisch gewaehlte Startbaseline noch eine allgemeine
+Assistentenbedingung. Letztere benoetigt wirklich `TUTOR_POLICY_MODE=general`.
+Dann Loesungsanwesenheit weiterhin erfassen, ohne inaktive Tutorverbote als
+Regelverstoss anzuwenden.
+
+### Referenzen und Grenzen
+
+Die optionale Task-Struktur `evaluation_examples` bindet 15 konkrete
+synthetische Antworten an zwei explizite, zur lokalen `model_solution`
+passende Funktionen. Exportstatus und Evidenz bleiben `pending`; die formale
+Validierung ist keine mathematische Pruefung. Der erste Vergleich benoetigt
+keine PRT-Anbindung. Gelieferte Fehlerlabels, LLM-Hypothesen, unabhaengige
+Referenzpruefung und spaetere STACK-Ergebnisse sind getrennte Quellen.
+Fehlender Score bleibt `None`, nicht `0.0`.
+Der zentrale Payload-Builder setzt synthetische Diagnoseherkunft auch fuer
+direkte Taskexports auf den API-Wert `synthetic`; diese Normalisierung aendert
+keinen Evidenzstatus. Eine LLM-Hypothese verifiziert weder Fehlerlabel noch Score.
+
+Evaluatoren erhalten gemeinsame Referenzen derselben Instanz auch bei fuer
+den Generator ausgeblendeten Task-Feldern. Bei Moodle-Zufallsvarianten werden
+feste lokale Beispielreferenzen nicht angehaengt. Variantenkorrektheit
+entsteht nicht durch hohe Hilfestufe oder einen passenden Fehlercode.
+
+Die API liefert aktive `hint_policy`, `configuration`, `config_sha256`, echte
+`prompt_messages`, effektive Optionen sowie Start-/Adaptationsmetadaten.
+Ein lokaler Preview ist keine gemessene Servereingabe. Ohne echten Prompt
+bleiben promptbezogene Checks `inconclusive`. Der Prompt-Guard ist kein
+vollstaendiger Ausgabefilter und keine symbolische Aequivalenzpruefung;
+fehlender Offenlegungstreffer beweist keine Loesungsabwesenheit.
+
+Der optionale Judge verwendet einen anderen gespeicherten Modellalias und
+geschuetzten Zugang. Seine Ratings bleiben von Menschenratings getrennt.
+Version `judge-rubric-1.0-v2` beruecksichtigt die separate
+`diagnosis_hypothesis`, `current_message`, `turn_index` und beobachtete
+`generator_rule_settings`; deaktivierte Regeln sind keine angenommenen
+Anforderungen. Modellberichte bleiben nach Bedingung/Turn getrennt.
+
+Adaptation verwendet ein monotones Intervall seit erfolgreicher Antwort nur
+bei passender Serverprozess-Uhr; nach Neustart oder anderem Worker ist es
+unbekannt. Dieses moeglicherweise Leerlauf enthaltende Intervall ist keine aktive Lernzeit.
+Ein explizit authentifiziertes Simulationsintervall ist auf 86400 Sekunden
+begrenzt und dispatcht ebenso wenig wie ein realer Zeitablauf automatisch
+eine LLM-Anfrage. Die Notebookvorbereitung nutzt jetzt `eval-protocol-2`,
+ohne daraus eine durchgefuehrte Studie oder optimierte Baseline abzuleiten.
+Skriptantworten, auch spaetere korrekte Antworten, sind vorherbestimmt und
+belegen weder Lernfortschritt noch Motivation.
+
+### Nächste Untersuchung
+
+1. Referenzpruefung und Entwicklungs-/Held-out-Split dokumentieren, Bloecke A-D
+   als einzelne Bedingungen authoren und vor Live-Aufrufen validieren.
+2. Stufen 0-4 pilotieren und eine gemeinsame Baseline nach vorab benannten
+   Kriterien auswaehlen; erst danach den individuellen Start vergleichen.
+3. Wenige Diagnose-, Regel- und Adaptationskontraste getrennt pruefen; echte
+   effektive Prompts/Policies vor inhaltlicher Interpretation kontrollieren.
+4. Technik, Offenlegungsindikatoren, Menschenratings und optionale
+   Modellratings mit getrennten Nennern berichten. Offline-Mocks sind keine
+   empirischen Modellantworten.
+
+---
+
+## Historische Analyse
+
 ## 1. Zusammenfassung
 
 Diese Auswertung analysiert, ob der aktuelle Code die in der Dokumentation

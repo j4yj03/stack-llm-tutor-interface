@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
-from app.config import MAX_HINT_LEVEL
+from app.config import DEFAULT_HINT_LEVEL, MAX_HINT_LEVEL, MIN_HINT_LEVEL
 from app.database import get_connection
 
 
@@ -30,9 +30,10 @@ class ChatStore:
         self,
         question_id: str,
         stack_context: Dict,
-        hint_level: int = 1
+        hint_level: int = DEFAULT_HINT_LEVEL,
+        session_state: Optional[Dict] = None
     ) -> str:
-        if not 1 <= hint_level <= MAX_HINT_LEVEL:
+        if not MIN_HINT_LEVEL <= hint_level <= MAX_HINT_LEVEL:
             raise ValueError("Ungültige Hilfestufe")
 
         chat_id = str(uuid4())
@@ -47,10 +48,12 @@ class ChatStore:
                     question_id,
                     stack_context_json,
                     current_hint_level,
+                    baseline_hint_level,
+                    session_state_json,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chat_id,
@@ -60,6 +63,8 @@ class ChatStore:
                         ensure_ascii=False
                     ),
                     hint_level,
+                    hint_level,
+                    json.dumps(session_state or {}, ensure_ascii=False),
                     now,
                     now
                 )
@@ -101,6 +106,8 @@ class ChatStore:
             "current_hint_level": row[
                 "current_hint_level"
             ],
+            "baseline_hint_level": row["baseline_hint_level"],
+            "session_state": json.loads(row["session_state_json"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
         }
@@ -230,7 +237,7 @@ class ChatStore:
     ) -> None:
         chat_id = validate_chat_id(chat_id)
 
-        if not 1 <= hint_level <= MAX_HINT_LEVEL:
+        if not MIN_HINT_LEVEL <= hint_level <= MAX_HINT_LEVEL:
             raise ValueError("Ungültige Hilfestufe")
 
         connection = get_connection(self.database_path)
@@ -265,6 +272,8 @@ class ChatStore:
 
         if chat is None:
             raise KeyError("Chat nicht gefunden")
+        if not MIN_HINT_LEVEL <= chat["current_hint_level"] <= MAX_HINT_LEVEL:
+            raise ValueError("Gespeicherte Hilfestufe liegt ausserhalb der aktiven Policy")
 
         next_level = min(
             chat["current_hint_level"] + 1,
@@ -277,3 +286,17 @@ class ChatStore:
         )
 
         return next_level
+
+    def set_session_state(self, chat_id: str, state: Dict) -> None:
+        chat_id = validate_chat_id(chat_id)
+        connection = get_connection(self.database_path)
+        try:
+            cursor = connection.execute(
+                "UPDATE chats SET session_state_json=? WHERE chat_id=?",
+                (json.dumps(state, ensure_ascii=False), chat_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError("Chat nicht gefunden")
+            connection.commit()
+        finally:
+            connection.close()

@@ -8,11 +8,13 @@ validiert werden.
 """
 
 import re
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SCHEMA_VERSION = "1.0"
+MAX_EVALUATION_HINT_LEVEL = 32
+HintLevel = Annotated[int, Field(ge=0, le=MAX_EVALUATION_HINT_LEVEL, strict=True)]
 
 # Die zehn Kontextschalter der Tutor-API (Reihenfolge = Prompt-Semantik).
 PROFILE_FLAG_NAMES = [
@@ -166,6 +168,7 @@ class CaseTutorContext(StrictModel):
     question_text: str = Field(min_length=1)
     student_answer: str = Field(min_length=1)
     diagnosis_code: Optional[str] = Field(None, max_length=200)
+    diagnosis_source: Optional[str] = Field(None, max_length=200)
     prt_feedback: Optional[str] = Field(None, max_length=5000)
     score: Optional[float] = Field(None, ge=0.0, le=1.0)
     seed: Optional[int] = None
@@ -227,18 +230,46 @@ class Case(StrictModel):
 class ControlJob(StrictModel):
     case_id: str
     profile_id: str
-    hint_level: int = Field(ge=1, le=4)
+    hint_level: HintLevel
     repetitions: int = Field(1, ge=1, le=10)
 
 
+class InteractionTurn(StrictModel):
+    """One explicit follow-up; elapsed time is simulated, not a sleep."""
+
+    message: str = Field(min_length=1, max_length=2000)
+    elapsed_seconds: float = Field(0.0, ge=0.0, le=86400, allow_inf_nan=False)
+    confusion_signal: Optional[Annotated[bool, Field(strict=True)]] = None
+    hint_level: Optional[HintLevel] = None
+
+    @field_validator("message")
+    @classmethod
+    def _check_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("interaction_script message must not be blank")
+        return value
+
+
 class Experiment(StrictModel):
+    """One deployment condition, never request-level rule overrides.
+
+    server_start uses [0] only as a plan placeholder and sends hint_level=null.
+    use_server_context omits request options; profile flags still select available
+    case data. Task-derived and unverified opt-ins do not confer verification.
+    """
+
     schema_version: str
     experiment_id: str
     protocol_version: str
     description: str = ""
+    condition_id: str = "default"
+    expected_config_sha256: Optional[str] = Field(None, pattern=r"^[0-9a-f]{64}$")
+    level_mode: Literal["direct", "server_start"] = "direct"
+    use_server_context: bool = False
+    interaction_script: List[InteractionTurn] = Field(default_factory=list)
     corpus_file: str
     profiles: List[str]
-    hint_levels: List[int]
+    hint_levels: List[HintLevel]
     repetitions: int = Field(1, ge=1, le=10)
     # Leere Liste/null-Einträge: Modellfeld wird im Request weggelassen
     # (Server-Default). Jeder nichtleere Eintrag muss zur Server-Allowlist
@@ -246,8 +277,10 @@ class Experiment(StrictModel):
     models: List[Optional[str]] = Field(default_factory=list)
     control_jobs: List[ControlJob] = Field(default_factory=list)
     max_generations_per_hour: int = Field(35, ge=1, le=1000)
+    request_budget_units_per_hour: int = Field(80, ge=4, le=1000)
     order_seed: int = 0
     allow_unverified_cases: bool = False
+    allow_task_derived_cases: bool = False
 
     @field_validator("schema_version")
     @classmethod
@@ -259,7 +292,7 @@ class Experiment(StrictModel):
             )
         return value
 
-    @field_validator("experiment_id", "protocol_version")
+    @field_validator("experiment_id", "protocol_version", "condition_id")
     @classmethod
     def _check_ids(cls, value: str) -> str:
         return _require_id(value)
@@ -269,9 +302,17 @@ class Experiment(StrictModel):
     def _check_levels(cls, value: List[int]) -> List[int]:
         if not value:
             raise ValueError("hint_levels darf nicht leer sein")
-        for level in value:
-            if not 1 <= level <= 4:
-                raise ValueError(
-                    "Hilfestufen müssen zwischen 1 und 4 liegen: " + repr(level)
-                )
         return sorted(set(value))
+
+    @model_validator(mode="after")
+    def _check_level_mode(self) -> "Experiment":
+        if self.level_mode == "server_start" and (
+            self.hint_levels != [0]
+            or any(control.hint_level != 0 for control in self.control_jobs)
+        ):
+            raise ValueError("server_start requires hint_levels=[0] and control levels 0")
+        if len(self.profiles) != len(set(self.profiles)):
+            raise ValueError("Experiment profiles must be unique")
+        if len(self.models) != len(set(self.models)):
+            raise ValueError("Experiment models must be unique")
+        return self

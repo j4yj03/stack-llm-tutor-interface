@@ -14,6 +14,7 @@ Der Korpus trennt strikt:
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -44,6 +45,46 @@ def sha256_json(payload) -> str:
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def configuration_sha256(configuration: dict) -> str:
+    """Hash the public API configuration using its ASCII canonical encoding."""
+    canonical = json.dumps(
+        configuration, ensure_ascii=True, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def validate_public_configuration(value: dict) -> dict:
+    """Validate a config response/snapshot without importing server modules."""
+    if not isinstance(value, dict) or not isinstance(value.get("configuration"), dict):
+        raise CorpusError("A public configuration snapshot is required")
+
+    def reject_credentials(data) -> None:
+        if isinstance(data, dict):
+            for key, item in data.items():
+                name = key.lower()
+                if (name in {"token", "credentials"} or any(
+                    part in name for part in (
+                        "api_key", "api_token", "evaluation_token", "authorization",
+                        "password", "secret",
+                    )
+                )) and type(item) is not bool:
+                    raise CorpusError("Credentials cannot enter public configuration snapshots")
+                reject_credentials(item)
+        elif isinstance(data, list):
+            for item in data:
+                reject_credentials(item)
+
+    reject_credentials(value["configuration"])
+    digest = configuration_sha256(value["configuration"])
+    if value.get("config_sha256") != digest:
+        raise CorpusError("The public configuration hash does not match its snapshot")
+    token = os.getenv("TUTOR_EVALUATION_TOKEN", "")
+    if token and token in json.dumps(value["configuration"], ensure_ascii=False):
+        raise CorpusError("Evaluation credentials cannot enter a public configuration snapshot")
+    return {"configuration": value["configuration"], "config_sha256": digest}
 
 
 def load_cases(path: Path) -> List[Case]:
@@ -118,6 +159,11 @@ def validate_experiment(
             errors.append("Unbekanntes Profil im Experiment: " + profile_id)
     if not experiment.profiles:
         errors.append("Experiment enthält keine Profile")
+    if not experiment.interaction_script and any(
+        profile_set.by_id()[profile_id].include_chat_history
+        for profile_id in experiment.profiles if profile_id in profile_ids
+    ):
+        errors.append("Chat history requires an explicit interaction_script")
     for control in experiment.control_jobs:
         if control.case_id not in case_ids:
             errors.append(
@@ -136,14 +182,20 @@ def validate_experiment(
         for level in experiment.hint_levels
         for repetition in range(1, experiment.repetitions + 1)
     }
+    control_cells = set()
     for control in experiment.control_jobs:
         for repetition in range(1, control.repetitions + 1):
-            if (control.case_id, control.profile_id, control.hint_level, repetition) in main_cells:
+            cell = (control.case_id, control.profile_id, control.hint_level, repetition)
+            if cell in main_cells or cell in control_cells:
                 errors.append(
-                    "control_job verdoppelt eine Hauptraster-Zelle: "
+                    "control_job verdoppelt eine Raster-Zelle: "
                     + control.case_id + "/" + control.profile_id
                     + "/L" + str(control.hint_level)
                 )
+            control_cells.add(cell)
+        if (not experiment.interaction_script and control.profile_id in profile_ids
+                and profile_set.by_id()[control.profile_id].include_chat_history):
+            errors.append("Control chat history requires an explicit interaction_script")
     return errors
 
 
@@ -166,13 +218,13 @@ def profile_requires(
     if profile.include_solution_steps and not (
         case.evaluation_only.reference.solution_steps
     ):
-        return "verifizierte solution_steps fehlen in der Referenz"
+        return "solution_steps fehlen in der Referenz"
     if profile.include_solution_steps and not case.evaluation_only.reference.final_answer:
         return "final_answer als Guard fuer solution_steps fehlt in der Referenz"
     if profile.include_final_answer and not (
         case.evaluation_only.reference.final_answer
     ):
-        return "verifizierte final_answer fehlt in der Referenz"
+        return "final_answer fehlt in der Referenz"
     return None
 
 
@@ -180,8 +232,14 @@ def case_profile_eligible(
     case: Case,
     profile: ContextProfile,
     allow_unverified_cases: bool,
+    allow_task_derived_cases: Optional[bool] = None,
 ) -> Optional[str]:
-    """None = geeignet; sonst Ausschlussgrund."""
+    """Data eligibility; pass the experiment's explicit task-derived live gate."""
+    provenance = case.evaluation_only.provenance
+    if ("task_derived" in case.tags or (
+        provenance.instantiated_task_ref or ""
+    ).endswith("#evaluation_examples")) and allow_task_derived_cases is False:
+        return "Task-derived synthetic cases require allow_task_derived_cases=true"
     if not case.is_research_eligible(allow_unverified_cases):
         return (
             "Mathematik nicht verifiziert (mathematics_status="
@@ -194,8 +252,9 @@ def case_profile_eligible(
 def build_request_payload(
     case: Case,
     profile: ContextProfile,
-    hint_level: int,
+    hint_level: Optional[int],
     model: Optional[str],
+    use_server_context: bool = False,
 ) -> dict:
     """Baut POST /api/tutor/start Payload (frischer Chat, ohne user_message).
 
@@ -208,6 +267,14 @@ def build_request_payload(
     """
     tutor = case.tutor_context
     reference = case.evaluation_only.reference
+    diagnosis_source = tutor.diagnosis_source
+    if diagnosis_source == "synthetic_fixture":
+        diagnosis_source = "synthetic"
+    elif diagnosis_source is None:
+        diagnosis_source = (
+            "synthetic" if case.evaluation_only.provenance.response_origin == "synthetic_fixture"
+            else "unknown"
+        )
 
     include_steps = profile.include_solution_steps and bool(
         reference.solution_steps
@@ -223,6 +290,12 @@ def build_request_payload(
         "diagnosis_code": (
             tutor.diagnosis_code
             if profile.include_diagnosis_code
+            else None
+        ),
+        "diagnosis_source": (
+            diagnosis_source
+            if ((profile.include_diagnosis_code and tutor.diagnosis_code)
+                or (profile.include_prt_feedback and tutor.prt_feedback))
             else None
         ),
         "prt_feedback": (
@@ -257,8 +330,9 @@ def build_request_payload(
         "chat_id": None,
         "user_message": None,
         "hint_level": hint_level,
-        "context_options": profile.flags(),
     }
+    if not use_server_context:
+        payload["context_options"] = profile.flags()
     if model:
         payload["model"] = model
     return payload

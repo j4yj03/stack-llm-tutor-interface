@@ -77,6 +77,75 @@
       "-10*(x-exp(x))*exp(x^2-2*exp(x))"
     ]
   },
+  "evaluation_examples": {
+    "instance_id": "task-chain-exp-f1",
+    "function": "f(x)=-5*exp(x^2-2*exp(x))",
+    "answers": [
+      {
+        "case_id": "task-chain-exp-missing-inner-001",
+        "student_answer": "-5*exp(x^2-2*exp(x))",
+        "expected_error": "missing_chain_rule_inner_derivative",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-wrong-inner-exp-001",
+        "student_answer": "-5*exp(x^2-2*exp(x))*(2*x-2)",
+        "expected_error": "wrong_derivative_inner_exp",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-wrong-power-001",
+        "student_answer": "-5*exp(x^2-2*exp(x))*(x-2*exp(x))",
+        "expected_error": "wrong_derivative_power",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-missing-constant-001",
+        "student_answer": "exp(x^2-2*exp(x))*(2*x-2*exp(x))",
+        "expected_error": "missing_constant_factor",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-sign-error-001",
+        "student_answer": "-5*exp(x^2-2*exp(x))*(2*x+2*exp(x))",
+        "expected_error": "sign_error",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-only-inner-001",
+        "student_answer": "2*x-2*exp(x)",
+        "expected_error": "only_inner_derivative",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-syntax-001",
+        "student_answer": "-5*exp(x^2-2*exp(x))*(2*x-2*exp(x)",
+        "expected_error": "syntax_error",
+        "expected_input_validity": "invalid",
+        "expected_correctness": "unknown"
+      },
+      {
+        "case_id": "task-chain-exp-unknown-001",
+        "student_answer": "42",
+        "expected_error": "unknown_error",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-chain-exp-correct-001",
+        "student_answer": "10*(exp(x)-x)*exp(x^2-2*exp(x))",
+        "expected_error": null,
+        "expected_input_validity": "valid",
+        "expected_correctness": "correct"
+      }
+    ]
+  },
   "diagnoses": {
     "missing_chain_rule_inner_derivative": {
       "title": "Die innere Ableitung der Kettenregel fehlt.",

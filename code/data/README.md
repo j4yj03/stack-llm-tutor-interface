@@ -1,6 +1,8 @@
 # Ordner `code/data/`
 
-Ablageort der SQLite-Datenbank des Prototyps.
+Stand: 2026-10-02. Ablageort der SQLite-Datenbank des Prototyps.
+API-/Sitzungsvertrag: [../app/README.md](../app/README.md);
+Umgebungsreferenz: [../config/README.md](../config/README.md).
 
 ## `tutor.db`
 
@@ -16,7 +18,9 @@ Wird von `app/database.py` beim Serverstart automatisch angelegt
 | `chat_id` | TEXT PK | UUID |
 | `question_id` | TEXT | zugehörige Aufgabe |
 | `stack_context_json` | TEXT | serialisiertes `StackContext` (Pydantic) |
-| `current_hint_level` | INTEGER | aktuelle Stufe (1–4) |
+| `current_hint_level` | INTEGER | Aktuelle Stufe `0..MAX_HINT_LEVEL`, Defaultmaximum 4 |
+| `baseline_hint_level` | INTEGER | Initiale gewaehlte Stufe neuer Sessions; unabhaengig vom spaeteren Aufstieg |
+| `session_state_json` | TEXT | JSON mit Startentscheidung, Antwortzeit, monotonem Uhrwert/Prozess-ID und letzter adaptiver Entscheidung; Default `{}` |
 | `created_at` / `updated_at` | TEXT | ISO-UTC-Zeitstempel |
 
 **`messages`** – Nachrichtenverlauf
@@ -31,10 +35,51 @@ Wird von `app/database.py` beim Serverstart automatisch angelegt
 
 Index: `idx_messages_chat` auf `(chat_id, message_id)`.
 
+## Additive Migration
+
+`initialize_database()` prueft vorhandene Spalten. Es ergaenzt fehlendes
+`baseline_hint_level` per `ALTER TABLE` und setzt fuer vorhandene Zeilen den
+damals aktuellen `current_hint_level` ein. Das ist eine Legacybaseline zum
+Migrationszeitpunkt, **keine** rekonstruierte historische Startstufe.
+`session_state_json` wird mit `{}` hinzugefuegt. Fruehere Startentscheidungen,
+Zeitintervalle, Simulationen oder Diagnosen werden nicht erfunden.
+
+Spaltenerweiterung und Baseline-Backfill laufen gemeinsam in einer expliziten
+Transaktion. Bereits vorhandene `NULL`-Legacybaselines aus einer unterbrochenen
+Migration werden bei erneuter Initialisierung mit der aktuellen Stufe repariert.
+Bekannte nichtleere Baselines bleiben unveraendert.
+
+Neue Chats setzen aktuelle Stufe und Baseline auf die explizite, feste oder
+individuell gewaehlte Startstufe; spaetere erfolgreiche Generierungen aendern
+nur aktuelle Stufe/Zustand. Fehlgeschlagene Stufenerhoehungen schreiben keinen
+Aufstieg. Nutzerfragen koennen bereits gespeichert sein, auch wenn die
+Assistantgenerierung scheitert. Einzelne DB-Operationen sind nicht ein
+vollstaendiges idempotentes Request-/Retryprotokoll.
+
+Erfolgreiche Antworten speichern `last_response_at` als UTC-Zeitstempel sowie
+`last_response_monotonic` und `clock_id` fuer Intervalle nur im selben Prozess.
+Nach Neustart/Workerwechsel bleibt das Intervall unbekannt; die gespeicherte
+Wallclock ist kein Ersatz. Simulationswerte sind explizite Requestdaten,
+keine dauerhaft uebernommene Zeitquelle oder aktive Lernzeitmessung.
+Strukturierte Hint-/Hypothesentexte sind serverseitig auf 20000/2000 Zeichen
+begrenzt, Auswahlgruende auf 2000; die additive DB-Migration selbst verifiziert
+weder diese Modelltexte noch historischen Sessionzustand.
+
+Konfigurationssnapshots, komplette Operationsjournale und Judge-Ratings gehoeren
+zu den separaten Evaluationsartefakten, nicht zu neuen vermeintlichen Tabellen
+in dieser Datenbank. Gespeichert wird der Hinttext; eine strukturierte
+Diagnosehypothese ist ein eigenes JSON-Responsefeld und kein PRT-Ergebnis.
+
 ## Hinweise
 
-- Diese Datei ist via `.gitignore` (`*.db`) vom Commit ausgeschlossen.
+- Datenbankdateien (`*.db`) sind git-ignoriert, diese README bleibt versioniert.
 - Zugriff ausschließlich über `app/chat_store.py` (parameterisierte SQL-Statements).
 - SQLite ist für den Prototyp ausreichend, aber **nicht** für hoch-konkurrenten Produktivbetrieb gedacht.
 - Pfad ist konfigurierbar über `DATABASE_PATH` (`.env`).
-- Ein Schemawechsel nach echten Nutzerdaten erfordert eine explizite Migration.
+- Vor produktiver Migration Sicherung und Tests auf einer Kopie einplanen;
+  keine Tests gegen die echte Nutzerdatenbank ausfuehren.
+- Evaluation speichert serverseitig Chats: eine isolierte `DATABASE_PATH`
+  verwenden. Clientplanung, Offline-Demo und Artefaktanalyse initialisieren
+  keine Tutor-Datenbank.
+- Chat-UUIDs bieten keine Authentifizierung. Identitaetspruefung bei
+  Chatfortsetzung ersetzt weder Zugriffssteuerung noch mathematische Bewertung.

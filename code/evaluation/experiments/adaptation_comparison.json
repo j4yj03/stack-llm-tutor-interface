@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "task-adaptation-comparison-v2",
+  "protocol_version": "eval-protocol-2",
+  "condition_id": "next-turn-adaptation-pilot",
+  "description": "Identisches authored Dialogskript unter fester vs adaptiver Deploymentbedingung. Zeit ist simuliert, keine beobachtete Lernzeit; kein Lernnachweis aus Skriptantworten. TUTOR_ADAPTIVE_ENABLED pro Instanz/Run bewusst variieren, Konfiguration beim Preflight pinnen.",
+  "corpus_file": "evaluation/imports/task_cases.jsonl",
+  "profiles": ["base"],
+  "hint_levels": [0],
+  "level_mode": "server_start",
+  "interaction_script": [
+    {"message": "Ich verstehe nicht, wie ich anfangen soll.", "elapsed_seconds": 130, "confusion_signal": true},
+    {"message": "Ich moechte erst selbst weiterdenken.", "elapsed_seconds": 130, "confusion_signal": false}
+  ],
+  "repetitions": 1,
+  "models": [],
+  "max_generations_per_hour": 35,
+  "request_budget_units_per_hour": 80,
+  "order_seed": 20261002,
+  "allow_unverified_cases": true,
+  "allow_task_derived_cases": true
+}

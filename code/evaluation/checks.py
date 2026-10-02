@@ -19,10 +19,10 @@ from math import prod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from evaluation.corpus import sha256_json
-from evaluation.models import SCHEMA_VERSION
+from evaluation.corpus import CorpusError, sha256_json, validate_public_configuration
+from evaluation.models import MAX_EVALUATION_HINT_LEVEL, PROFILE_FLAG_NAMES, SCHEMA_VERSION
 
-CHECK_VERSION = "1.1"
+CHECK_VERSION = "1.3"
 
 MATH_VARIABLE = "x"
 _MATH_FUNCTIONS = ("sin", "cos", "tan", "exp", "log", "sqrt")
@@ -41,16 +41,17 @@ def normalize_expression(text: str) -> str:
 def _user_message(prompt_messages: Optional[List[dict]]) -> Optional[str]:
     if not isinstance(prompt_messages, list) or not prompt_messages or any(
         not isinstance(message, dict)
-        or message.get("role") not in ("system", "user", "assistant")
+        or message.get("role") not in ("system", "developer", "user", "assistant")
         or not isinstance(message.get("content"), str)
         for message in prompt_messages
     ):
         return None
-    content = "\n".join(
-        message["content"]
-        for message in prompt_messages
+    # Prior history must not satisfy required current context or look like a
+    # newly injected reference section. The server's final user turn is context.
+    content = next((
+        message["content"] for message in reversed(prompt_messages)
         if message.get("role") == "user"
-    )
+    ), "")
     return content if content.strip() else None
 
 
@@ -164,7 +165,7 @@ def run_checks(
     attempt_id = generation.get("attempt_id", "")
     job_id = generation.get("job_id", "")
     outcome = generation.get("outcome")
-    level = generation.get("hint_level")
+    requested_level = generation.get("requested_hint_level", generation.get("hint_level"))
     payload = generation.get("request_payload") or {}
 
     if outcome != "success":
@@ -175,20 +176,53 @@ def run_checks(
             "Keine erfolgreiche Antwort; fachliche Checks nicht anwendbar.",
             attempt_id, job_id,
         ))
+        records[-1].update({
+            "condition_id": generation.get("condition_id", "default"),
+            "session_id": generation.get("session_id"),
+            "turn_index": generation.get("turn_index", 0),
+        })
         return records
 
     returned = generation.get("returned") or {}
+    level = returned.get("hint_level", generation.get("hint_level"))
+    stage = returned.get("stage", "diagnostic" if level == 0 else "hint")
+    configuration = returned.get("configuration") or generation.get("configuration") or {}
+    if not isinstance(configuration, dict):
+        configuration = {}
+    rules = configuration.get("tutor_rules") or {}
+    policy_mode = returned.get("policy_mode", rules.get("policy_mode", "tutor"))
+    observed_policy = returned.get("hint_policy")
+    level_policy = observed_policy if isinstance(observed_policy, dict) else (
+        (configuration.get("hint_policy") or {}).get(str(level))
+        or (policy or {}).get(str(level)) or {}
+    )
+    policy_origin = "observed_response" if isinstance(observed_policy, dict) else (
+        "observed_configuration" if (configuration.get("hint_policy") or {}).get(str(level))
+        else "saved_policy_not_observed"
+    )
+    modern = any(key in returned for key in (
+        "configuration", "hint_policy", "config_sha256", "stage", "policy_mode",
+    )) or generation.get("level_mode") == "server_start" or bool(generation.get("turn_index"))
     hint = returned.get("hint") or ""
     user_message = _user_message(returned.get("prompt_messages"))
     prompt_available = user_message is not None
     user_message = user_message or ""
-    level_policy = (policy or {}).get(str(level)) or {}
+    stack = payload.get("stack") or generation.get("stack_context") or {}
 
     # --- 1. Identität ---------------------------------------------
+    explicit_level = payload.get("hint_level", requested_level)
+    adaptive_level = explicit_level is None
+    valid_level = type(level) is int and 0 <= level <= MAX_EVALUATION_HINT_LEVEL
+    bounds = configuration.get("start") or {}
+    if type(bounds.get("max_level")) is int:
+        valid_level = valid_level and bounds.get("min_level", 0) <= level <= bounds["max_level"]
     identities_ok = (
         returned.get("question_id")
-        == payload.get("stack", {}).get("question_id")
-        and returned.get("hint_level") == level
+        == stack.get("question_id", case.tutor_context.question_id)
+        and valid_level
+        and (adaptive_level or level == explicit_level)
+        and (not modern or stage == ("diagnostic" if level == 0 else "hint"))
+        and policy_mode in {"tutor", "general"}
         and (
             payload.get("model") is None
             or returned.get("model") == payload.get("model")
@@ -202,95 +236,176 @@ def run_checks(
             "returned_hint_level": returned.get("hint_level"),
             "returned_model": returned.get("model"),
             "requested_model": payload.get("model"),
+            "requested_hint_level": explicit_level,
+            "level_mode": generation.get("level_mode", "direct"),
+            "stage": stage,
+            "policy_mode": policy_mode,
         },
         "" if identities_ok else "Zurückgegebene Identität weicht ab.",
         attempt_id, job_id,
     ))
 
     # --- 2. Kontextoptionen -----------------------------------------
-    expected_options = payload.get("context_options", {})
+    expected_requested = payload.get("context_options")
+    expected_options = expected_requested
+    if expected_options is None and generation.get("use_server_context"):
+        expected_options = configuration.get("context_defaults")
+        expected_requested = expected_options
+    requested_match = None
+    if "requested_context_options" in returned and expected_requested is not None:
+        observed_requested = returned["requested_context_options"]
+        requested_match = (
+            isinstance(observed_requested, dict)
+            and set(observed_requested) == set(PROFILE_FLAG_NAMES)
+            and all(type(value) is bool for value in observed_requested.values())
+        )
+        if requested_match:
+            observed_requested = dict(observed_requested)
+            # Public server defaults already apply diagnosis-mode restrictions;
+            # explicit request flags, in contrast, must match before any cap.
+            if payload.get("context_options") is None and rules.get("diagnosis_mode") in {"model", "none"}:
+                observed_requested["include_diagnosis_code"] = False
+                observed_requested["include_prt_feedback"] = False
+            requested_match = observed_requested == expected_requested
+    if expected_options is not None:
+        expected_options = dict(expected_options)
+        if rules.get("diagnosis_mode") in {"model", "none"}:
+            expected_options["include_diagnosis_code"] = False
+            expected_options["include_prt_feedback"] = False
+        stage0_options = configuration.get("stage0_context_options")
+        if level == 0 and isinstance(stage0_options, dict):
+            expected_options = {
+                name: enabled and stage0_options.get(name, False)
+                for name, enabled in expected_options.items()
+            }
     returned_options = returned.get("context_options") or {}
-    options_ok = (
+    options_ok = requested_match is not False and expected_options is not None and (
         set(returned_options) == set(expected_options)
         and all(
-            returned_options.get(name) == expected
+            type(returned_options.get(name)) is bool
+            and returned_options.get(name) == expected
             for name, expected in expected_options.items()
         )
     )
     records.append(_check(
         "context_options_match",
-        "pass" if options_ok else "fail",
+        "pass" if options_ok else ("fail" if expected_options is not None else "inconclusive"),
         {
             "expected_sha256": sha256_json(expected_options),
+            "requested_options": payload.get("context_options"),
+            "returned_requested_options": returned.get("requested_context_options"),
+            "requested_options_match": requested_match,
+            "expected_effective_options": expected_options,
+            "diagnosis_mode": rules.get("diagnosis_mode"),
+            "stage": stage,
             "returned_options": returned_options,
         },
-        "" if options_ok else "Zurückgegebene Kontextoptionen weichen ab.",
+        "" if options_ok else (
+            "Zurueckgegebene Kontextoptionen weichen von den konfigurierten Optionen ab."
+            if expected_options is not None else "Keine beobachteten Server-Defaults verfuegbar."
+        ),
         attempt_id, job_id,
     ))
 
     # --- 3. Erforderliche Kontexte im Prompt -------------------------
     required_parts: List[Tuple[str, str]] = []
-    if profile.include_question_text:
+    options = returned_options if modern else profile.flags()
+    options_available = not modern or (
+        isinstance(returned.get("context_options"), dict)
+        and set(returned_options) == set(PROFILE_FLAG_NAMES)
+        and all(type(value) is bool for value in returned_options.values())
+    )
+    if options.get("include_question_text"):
         required_parts.append(
-            ("question_text", case.tutor_context.question_text)
+            ("question_text", stack.get("question_text", case.tutor_context.question_text))
         )
-    if profile.include_student_answer:
+    if options.get("include_student_answer"):
         required_parts.append(
-            ("student_answer", case.tutor_context.student_answer)
+            ("student_answer", stack.get("student_answer", case.tutor_context.student_answer))
         )
-    if profile.include_diagnosis_code and case.tutor_context.diagnosis_code:
+    diagnosis = stack.get("diagnosis_code", case.tutor_context.diagnosis_code)
+    feedback = stack.get("prt_feedback", case.tutor_context.prt_feedback)
+    score = stack.get("score", case.tutor_context.score)
+    goals = stack.get("learning_goals", case.tutor_context.learning_goals)
+    math_rules = stack.get("math_rules", case.tutor_context.math_rules)
+    if options.get("include_diagnosis_code") and diagnosis:
         required_parts.append(
-            ("diagnosis_code", case.tutor_context.diagnosis_code)
+            ("diagnosis_code", diagnosis)
         )
-    if profile.include_prt_feedback and case.tutor_context.prt_feedback:
+    if options.get("include_prt_feedback") and feedback:
         required_parts.append(
-            ("prt_feedback", case.tutor_context.prt_feedback)
+            ("prt_feedback", feedback)
         )
-    if profile.include_score and case.tutor_context.score is not None:
-        required_parts.append(("score", "STACK-SCORE:\n" + str(case.tutor_context.score)))
-    if profile.include_learning_goals and case.tutor_context.learning_goals:
-        required_parts.append(
-            ("learning_goals", case.tutor_context.learning_goals[0])
-        )
-    if profile.include_math_rules and case.tutor_context.math_rules:
-        required_parts.append(
-            ("math_rules", case.tutor_context.math_rules[0])
-        )
+    if not modern and profile.include_score:
+        score = case.tutor_context.score
+    if options.get("include_score") and score is not None:
+        required_parts.append(("score", "STACK-SCORE:\n" + str(score)))
+    if options.get("include_learning_goals") and goals:
+        required_parts.extend(("learning_goals", goal) for goal in (goals if modern else goals[:1]))
+    if options.get("include_math_rules") and math_rules:
+        required_parts.extend(("math_rules", rule) for rule in (math_rules if modern else math_rules[:1]))
     reference = case.evaluation_only.reference
 
     # Lösungsschritte nur erwarten, wenn die serverseitige Doppelprüfung
     # (Kontextoption UND Stufenfreigabe) sie zulässt.
     steps_allowed_by_level = bool(level_policy.get("include_solution_steps"))
-    if profile.include_solution_steps and steps_allowed_by_level and (
-        reference.solution_steps
+    steps = stack.get("solution_steps", reference.solution_steps)
+    final_answer = stack.get("final_answer", reference.final_answer)
+    allowed_steps = steps[:level_policy.get("max_solution_steps")]
+    if final_answer and not (
+        options.get("include_final_answer") and level_policy.get("include_final_answer")
     ):
-        required_parts.append(("solution_steps", reference.solution_steps[0]))
-
+        for index, step in enumerate(allowed_steps):
+            if final_answer in step:
+                allowed_steps = allowed_steps[:index]
+                break
+    if options.get("include_solution_steps") and steps_allowed_by_level and allowed_steps:
+        required_parts.extend(("solution_steps", step) for step in (
+            allowed_steps if modern else allowed_steps[:1]
+        ))
+    if modern and options.get("include_final_answer") and level_policy.get("include_final_answer") and final_answer:
+        required_parts.append(("final_answer", final_answer))
     missing = [
         name for name, part in required_parts
         if normalize_expression(part) not in normalize_expression(user_message)
     ]
+    if payload.get("message"):
+        current = normalize_expression(payload["message"])
+        observed_turns = returned.get("prompt_messages") or []
+        history_current = next((
+            message.get("content", "") for message in reversed(observed_turns[:-1])
+            if isinstance(message, dict) and message.get("role") == "user"
+        ), "")
+        visible_current = current in normalize_expression(user_message) or (
+            options.get("include_chat_history") and normalize_expression(history_current) == current
+        )
+        if not visible_current:
+            missing.append("current_message")
     records.append(_check(
         "prompt_required_content",
-        ("pass" if not missing else "fail") if prompt_available else "inconclusive",
+        ("pass" if not missing else "fail") if prompt_available and options_available else "inconclusive",
         {
             "prompt_available": prompt_available,
+            "effective_options_available": options_available,
             "missing": missing if prompt_available else None,
             "checked_parts": [name for name, _ in required_parts],
+            "effective_context_options": options,
+            "effective_hint_level": level,
+            "policy_origin": policy_origin,
         },
         ("" if not missing else "Erforderliche Kontexte fehlen im Prompt.")
-        if prompt_available else "Keine echten prompt_messages verfuegbar.",
+        if prompt_available and options_available else "Echte prompt_messages oder effektive Optionen fehlen.",
         attempt_id, job_id,
     ))
 
     # --- 4. Gesperrte Lösungsabschnitte im Prompt ---------------------
     leaked_prompt_parts: List[str] = []
-    steps_locked = not profile.include_solution_steps or (
+    steps_locked = not options.get("include_solution_steps") or (
         not steps_allowed_by_level
     )
     # Student input is not a newly disclosed reference solution section.
     guard_message = normalize_expression(re.sub(
-        r"<student_answer>.*?</student_answer>", "", user_message,
+        r"<student_answer>.*?</student_answer>|<current_message>.*?</current_message>", "", user_message,
         flags=re.DOTALL,
     ))
     if steps_locked and reference.solution_steps and any(
@@ -298,8 +413,13 @@ def run_checks(
         for step in reference.solution_steps
     ):
         leaked_prompt_parts.append("solution_steps")
+    if not steps_locked and steps and any(
+        normalize_expression(step) in guard_message
+        for step in steps if step not in allowed_steps
+    ):
+        leaked_prompt_parts.append("solution_step_limit")
     final_locked = not (
-        profile.include_final_answer and level_policy.get("include_final_answer")
+        options.get("include_final_answer") and level_policy.get("include_final_answer")
     )
     if final_locked and reference.final_answer:
         if any(
@@ -312,7 +432,7 @@ def run_checks(
     records.append(_check(
         "prompt_solution_guard",
         ("fail" if leaked_prompt_parts else "pass")
-        if prompt_available else "inconclusive",
+        if prompt_available and options_available else "inconclusive",
         {
             "prompt_available": prompt_available,
             "leaked": leaked_prompt_parts if prompt_available else None,
@@ -320,13 +440,92 @@ def run_checks(
             "final_locked": final_locked,
         },
         ("" if not leaked_prompt_parts else "Gesperrte Loesungsabschnitte im Prompt.")
-        if prompt_available else "Keine echten prompt_messages verfuegbar.",
+        if prompt_available and options_available else "Echte prompt_messages oder effektive Optionen fehlen.",
         attempt_id, job_id,
     ))
 
+    if (returned.get("start_decision") or {}).get("source") == "model_hypothesis" and not generation.get("turn_index"):
+        selector_prompt = _user_message(returned.get("start_prompt_messages"))
+        selector_flags = (returned.get("start_decision") or {}).get("context_options")
+        selector_available = (
+            selector_prompt is not None and isinstance(selector_flags, dict)
+            and set(selector_flags) == set(PROFILE_FLAG_NAMES)
+            and all(type(value) is bool for value in selector_flags.values())
+        )
+        expected_selector = payload.get("context_options") or configuration.get("context_defaults")
+        caps = configuration.get("stage0_context_options")
+        expected_available = (
+            isinstance(expected_selector, dict) and set(expected_selector) == set(PROFILE_FLAG_NAMES)
+            and isinstance(caps, dict) and set(caps) == set(PROFILE_FLAG_NAMES)
+            and all(type(value) is bool for value in list(expected_selector.values()) + list(caps.values()))
+        )
+        selector_leaks = []
+        selector_missing = []
+        zero_policy = (configuration.get("hint_policy") or {}).get("0") or (policy or {}).get("0") or {}
+        if selector_available:
+            if expected_available:
+                expected_selector = {name: enabled and caps[name] for name, enabled in expected_selector.items()}
+                if rules.get("diagnosis_mode") in {"model", "none"}:
+                    expected_selector["include_diagnosis_code"] = False
+                    expected_selector["include_prt_feedback"] = False
+                if selector_flags != expected_selector:
+                    selector_leaks.append("context_options")
+            raw_content = normalize_expression(selector_prompt)
+            content = normalize_expression(re.sub(r"<student_answer>.*?</student_answer>", "", selector_prompt, flags=re.DOTALL))
+            context_content = normalize_expression(re.sub(
+                r"<student_answer>.*?</student_answer>|<question_text>.*?</question_text>", "",
+                selector_prompt, flags=re.DOTALL,
+            ))
+            selector_parts = {
+                "question_text": [stack.get("question_text", case.tutor_context.question_text)],
+                "student_answer": [stack.get("student_answer", case.tutor_context.student_answer)],
+                "diagnosis_code": [diagnosis] if diagnosis else [],
+                "prt_feedback": [feedback] if feedback else [],
+                "score": ["STACK-SCORE:\n" + str(score)] if score is not None else [],
+                "learning_goals": goals or [], "math_rules": math_rules or [],
+            }
+            for field, parts in selector_parts.items():
+                enabled = selector_flags["include_" + field]
+                if enabled and any(normalize_expression(part) not in raw_content for part in parts):
+                    selector_missing.append(field)
+                if not enabled:
+                    if field in {"question_text", "student_answer"}:
+                        other = "student_answer" if field == "question_text" else "question_text"
+                        inspected = normalize_expression(re.sub(
+                            "<" + other + ">.*?</" + other + ">", "", selector_prompt, flags=re.DOTALL,
+                        ))
+                    else:
+                        inspected = context_content
+                    if any(normalize_expression(part) in inspected for part in parts):
+                        selector_leaks.append(field)
+            if not (selector_flags.get("include_final_answer") and zero_policy.get("include_final_answer")):
+                if any(normalize_expression(form) in content for form in (
+                    [reference.final_answer] + list(reference.equivalent_forms)
+                ) if form):
+                    selector_leaks.append("final_answer")
+            if not (selector_flags.get("include_solution_steps") and zero_policy.get("include_solution_steps")):
+                if any(normalize_expression(step) in content for step in reference.solution_steps):
+                    selector_leaks.append("solution_steps")
+        records.append(_check(
+            "start_selection_context", (
+                "fail" if selector_leaks or selector_missing else "pass" if expected_available and zero_policy else "inconclusive"
+            ) if selector_available else "inconclusive",
+            {"prompt_available": selector_prompt is not None, "effective_options_available": selector_available,
+             "expected_options_available": expected_available, "returned_options": selector_flags,
+             "expected_effective_options": expected_selector if expected_available else None,
+             "missing": selector_missing if selector_available else None,
+             "leaked": selector_leaks if selector_available else None},
+            "Selector operation requires observed context evidence.", attempt_id, job_id,
+        ))
+
     # --- 5. Wortzahl gegen aktive Policy ------------------------------
     word_count = len(re.findall(r"\S+", hint))
-    if not level_policy:
+    if policy_mode == "general" or rules.get("enforce_word_limit") is False:
+        records.append(_check(
+            "word_count", "not_applicable", {"word_count": word_count, "policy_mode": policy_mode},
+            "Configured output word-limit rule is inactive.", attempt_id, job_id,
+        ))
+    elif not level_policy or type(level_policy.get("max_words")) is not int:
         records.append(_check(
             "word_count", "inconclusive", {"word_count": word_count},
             "Keine Policy für Stufe verfügbar.", attempt_id, job_id,
@@ -346,7 +545,8 @@ def run_checks(
     mentioned = bool(_LEVEL_NAME_PATTERN.search(hint))
     records.append(_check(
         "hint_level_mention",
-        "fail" if mentioned else "pass",
+        "not_applicable" if policy_mode == "general" or rules.get("hide_hint_level") is False
+        else ("fail" if mentioned else "pass"),
         {"pattern": "hilfestufe|stufe N|level N"},
         "" if not mentioned else "Hinweis nennt die interne Hilfestufe.",
         attempt_id, job_id,
@@ -358,7 +558,7 @@ def run_checks(
         records.append(_check(
             "final_answer_disclosure", "not_applicable",
             {"reference_available": False},
-            "Keine verifizierte Referenzendlösung verfügbar.",
+            "Keine Referenzendloesung verfuegbar; Verifikation wird nicht angenommen.",
             attempt_id, job_id,
         ))
     else:
@@ -389,20 +589,53 @@ def run_checks(
         else:
             records.append(_check(
                 "final_answer_disclosure",
-                "pass" if allowed else "fail",
+                "not_applicable" if policy_mode == "general" else ("pass" if allowed else "fail"),
                 {
                     "present": True,
                     "matched_form": matched_form,
                     "match_kind": match_kind,
-                    "allowed_at_level": allowed,
+                    "allowed_at_level": None if policy_mode == "general" else allowed,
+                    "policy_mode": policy_mode,
+                    "prohibited_disclosure": None if policy_mode == "general" else not allowed,
                 },
                 (
-                    "Endlösung vorhanden; auf dieser Stufe erlaubt."
+                    "Endloesung vorhanden; Tutor-Stufenregel im general-Modus inaktiv."
+                    if policy_mode == "general" else "Endlösung vorhanden; auf dieser Stufe erlaubt."
                     if allowed
                     else "Unzulässiger Lösungsverrat gegen Stufenregel."
                 ),
                 attempt_id, job_id,
             ))
+    if modern:
+        config_status = "inconclusive"
+        try:
+            checked = validate_public_configuration(returned)
+            pinned = generation.get("config_sha256") or generation.get("expected_config_sha256")
+            config_status = "pass" if pinned is None or checked["config_sha256"] == pinned else "fail"
+            configured_policy = (checked["configuration"].get("hint_policy") or {}).get(str(level))
+            if isinstance(observed_policy, dict) and configured_policy is not None and observed_policy != configured_policy:
+                config_status = "fail"
+            configured_mode = (checked["configuration"].get("tutor_rules") or {}).get("policy_mode")
+            if configured_mode is not None and policy_mode != configured_mode:
+                config_status = "fail"
+        except (CorpusError, ValueError, TypeError):
+            if returned.get("configuration") is not None:
+                config_status = "fail"
+        records.append(_check(
+            "configuration_identity", config_status,
+            {"config_sha256": returned.get("config_sha256"),
+             "pinned_config_sha256": generation.get("config_sha256")},
+            "" if config_status == "pass" else "Public configuration identity is invalid or unavailable.",
+            attempt_id, job_id,
+        ))
+    for record in records:
+        record.update({
+            "condition_id": generation.get("condition_id", "default"),
+            "session_id": generation.get("session_id"),
+            "turn_index": generation.get("turn_index", 0),
+            "effective_hint_level": level, "stage": stage, "policy_mode": policy_mode,
+            "policy_origin": policy_origin,
+        })
     return records
 
 

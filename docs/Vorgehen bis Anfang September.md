@@ -1,5 +1,58 @@
 # Integration des HTW-LLM-Dienstes in den STACK-LLM-Tutor
 
+## Historischer Status: 2026-10-02
+
+**Status: Archiv des Vorgehens vor bzw. um den September-Backendwechsel.** Die
+urspruenglichen Endpunktbefunde, Diagnoseskripte und Supportnachricht darunter
+bleiben erhalten; sie sind keine aktuellen Ausfuehrungsanweisungen. Fuer neue
+Untersuchungen gelten [eval-protocol-2](evaluation_protocol.md) und der
+[Architekturnachtrag](softwarearchitektur.md).
+
+Der Defaultbackend ist inzwischen GWDG SAIA ueber die austauschbare
+`app/llm/`-Schicht mit `LLM_*`-Konfiguration. Lokales Ollama bleibt Fallback.
+Die damals beobachteten HTW-401/404-Antworten sagen nicht, dass ein Modellrequest
+erfolgreich war oder der Alias geprueft wurde: Authentifizierung kann vor der
+Modellauswahl scheitern. Auch TLS-Erreichbarkeit belegt weder durchgaengige
+Verfuegbarkeit noch rechtliche Konformitaet. Hier wurde kein neuer Web-/API-Test
+durchgefuehrt.
+
+### Überholte Prioritäten
+
+Backendabstraktion, generische Policies, Chat-/Promptanzeige,
+Evaluationsjournal und optionale Judge-Schnittstelle sind inzwischen vorhanden.
+An ihre Stelle tritt die kontrollierte Auswahl empirischer Bedingungen:
+15 synthetische, aufgabenabgeleitete Antworten mit expliziten Funktionen,
+passenden Referenzhypothesen und weiterhin offener `pending`-Evidenz. Ein PRT
+ist fuer den initialen Vergleich nicht erforderlich; spaetere reale
+STACK-/Moodlevalidierung bleibt ein eigener Nachweis.
+
+Policies und Kontext-/Generierungsparameter werden als Bedingungen verglichen,
+nicht als unveraenderliche Defaults verteidigt. Stufe 0 ist Diagnosefrage mit
+eigenem Kontext, Standardbereich 0-4. Start 1, Text, bereitgestellter
+Fehlerkontext und Adaptation aus bleiben aktuelle Defaults bis zur expliziten
+Auswahl. Neue Start-/Regel-/Adaptations-Presets und Ergebnisse werden nicht
+aus diesem historischen Arbeitsplan abgeleitet.
+
+Feste/adaptive Skriptsessions brauchen identische Nachrichten und Zeiten;
+Zeitgrenze plus Verwirrung wird erst bei neuer Interaktion geprueft. Ein
+vorgegebenes korrektes Skriptergebnis ist kein Lern- oder Motivationseffekt.
+Ein optionaler Judge nutzt anderen gespeicherten Modellalias und eigenen
+geschuetzten Live-Zugang; Menschenratings bleiben getrennt.
+
+### Grenzen der alten Diagnoseskripte
+
+Die unten gezeigte Ausgabe kompletter URLs, Header oder Antwortbodies ist nur
+mit unkritischen synthetischen Testdaten vertretbar. Keine echten Keys,
+Antwortdaten, Auth-Header oder vollstaendigen Upstream-Fehler unnoetig loggen.
+GET-`ans1`, Browserhistorie, Proxies, SQLite, Providerlogs und
+Evaluationsartefakte brauchen einen Aufbewahrungs-/Zugriffsplan. Der Judge ist
+ein zusaetzlicher Verarbeitungsschritt. Institutioneller Betrieb und
+`verify=True` ersetzen diese Governance-Pruefung nicht.
+
+---
+
+## Historischer Arbeitsplan
+
 ## 1. Zielsetzung
 
 Ziel ist die Anbindung eines selbst gehosteten Sprachmodells der HTW Berlin an den FastAPI-basierten STACK-LLM-Tutor.

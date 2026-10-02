@@ -37,12 +37,14 @@ class OllamaNativeClient(LLMClient):
             "model": model or config.LLM_MODEL,
             "messages": messages,
             "stream": False,
-            "think": False,
+            "think": not config.LLM_DISABLE_THINKING,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens
             }
         }
+        if json_output:
+            payload["format"] = "json"
 
         url = (
             f"{config.LLM_BASE_URL.rstrip('/')}"

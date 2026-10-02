@@ -70,6 +70,54 @@
       "x*(2*sin(x)+x*cos(x))"
     ]
   },
+  "evaluation_examples": {
+    "instance_id": "task-prod-f1",
+    "function": "f(x)=x^2*sin(x)",
+    "answers": [
+      {
+        "case_id": "task-prod-missing-term-001",
+        "student_answer": "2*x*sin(x)",
+        "expected_error": "missing_product_rule_term",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-prod-wrong-sin-001",
+        "student_answer": "2*x*sin(x)+x^2*sin(x)",
+        "expected_error": "wrong_derivative_sin",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-prod-wrong-power-001",
+        "student_answer": "x*sin(x)+x^2*cos(x)",
+        "expected_error": "wrong_derivative_power",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-prod-syntax-001",
+        "student_answer": "2*x*sin(x)+x^2*cos(x",
+        "expected_error": "syntax_error",
+        "expected_input_validity": "invalid",
+        "expected_correctness": "unknown"
+      },
+      {
+        "case_id": "task-prod-unknown-001",
+        "student_answer": "42",
+        "expected_error": "unknown_error",
+        "expected_input_validity": "valid",
+        "expected_correctness": "incorrect"
+      },
+      {
+        "case_id": "task-prod-correct-001",
+        "student_answer": "x^2*cos(x)+2*x*sin(x)",
+        "expected_error": null,
+        "expected_input_validity": "valid",
+        "expected_correctness": "correct"
+      }
+    ]
+  },
   "diagnoses": {
     "missing_product_rule_term": {
       "title": "Ein Summand der Produktregel fehlt.",

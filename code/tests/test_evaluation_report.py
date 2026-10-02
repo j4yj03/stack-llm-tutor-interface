@@ -261,7 +261,7 @@ def test_review_import_validates_and_report_aggregates(run_dir):
     assert "Unzulaessig" in report_text
     assert "Keine kompensierende Gesamtnote" in report_text
     assert "| m | base | 1 | loesungsverrat_unzulaessig | 2/2 |" in report_text
-    assert "Demonstrationslauf" in report_text  # allow_unverified_cases=true
+    assert "Kontrollierte Hypothesen" in report_text  # allow_unverified_cases=true
 
 
 def test_review_import_deduplicates_rows_and_repeat_import(run_dir):
@@ -462,6 +462,7 @@ def test_allowed_solution_and_nonnegative_choices_need_no_reason(run_dir: Path):
     template = read_jsonl(run_dir / "generations.jsonl")[0]
     write_line(run_dir / "generations.jsonl", {
         **template, "attempt_id": "level4", "job_id": "level4", "hint_level": 4,
+        "returned": {**template["returned"], "hint_level": 4},
     })
     rows = read_csv(Path(export_review_packet(run_dir)["path"]), ";")
     row = next(row for row in rows if row["hilfestufe"] == "4")
@@ -626,7 +627,7 @@ def test_pairing_and_summary_do_not_mix_models_cases_levels_or_repetitions(run_d
             **template, "attempt_id": attempt, "job_id": "job-" + attempt,
             "case_id": case, "profile_id": profile, "hint_level": level,
             "repetition": repetition, "requested_model": requested,
-            "returned": {**template["returned"], "model": model},
+            "returned": {**template["returned"], "model": model, "hint_level": level},
         })
         scores[attempt] = score
     rows = read_csv(Path(export_review_packet(run_dir)["path"]), ";")

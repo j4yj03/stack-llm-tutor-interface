@@ -36,7 +36,10 @@ def make_run_dir(tmp_path: Path) -> Path:
         json.dumps(experiment, ensure_ascii=False), encoding="utf-8"
     )
     corpus_path = tmp_path / "cases.jsonl"
-    corpus_path.write_bytes((DATA_DIR / "example_cases.jsonl").read_bytes())
+    corpus_path.write_text(
+        "\n".join((DATA_DIR / "example_cases.jsonl").read_text(encoding="utf-8").splitlines()[:2]) + "\n",
+        encoding="utf-8",
+    )
     create_run(
         run_dir=run_dir,
         experiment_path=experiment_path_small,

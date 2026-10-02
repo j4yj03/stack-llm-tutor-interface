@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 
 from evaluation import runner
 from evaluation.checks import load_policy
-from evaluation.corpus import load_cases
+from evaluation.corpus import load_cases, sha256_json
 from evaluation.models import SCHEMA_VERSION
 
 GENERATIONS_FILE = "generations.jsonl"
@@ -45,7 +45,9 @@ CHOICE_FIELDS = [
 RFC_REVIEW_COLUMNS = (
     ["review_id", "rater_id", "hilfestufe", "hilfestufenziel", "aufgabenstellung",
      "studentische_antwort", "referenz_endloesung", "erwarteter_fehlerfall",
-     "erwartete_validitaet", "erwartete_korrektheit", "tutorhinweis"]
+     "erwartete_validitaet", "erwartete_korrektheit", "tutorhinweis",
+     "phase", "dialogschritt", "aktuelle_nachricht", "regelmodus",
+     "referenzstatus_mathematik", "referenzstatus_diagnose", "diagnoseherkunft"]
     + LIKERT_FIELDS + CHOICE_FIELDS + ["begruendung"]
 )
 _CHOICE_VALUES = ("ja", "nein", "unklar", "nicht_anwendbar")
@@ -68,7 +70,7 @@ def _successful_results(generations: List[dict]) -> List[dict]:
     by_job: Dict[str, dict] = {}
     for record in generations:
         if record.get("outcome") == "success":
-            by_job[record["job_id"]] = record
+            by_job[(record.get("condition_id", "default"), record["job_id"])] = record
     return list(by_job.values())
 
 
@@ -86,6 +88,22 @@ def _model_key(record: dict) -> str:
     )
 
 
+def _effective_level(record: dict):
+    return (record.get("returned") or {}).get("hint_level", record.get("hint_level"))
+
+
+def _stage(record: dict) -> str:
+    return (record.get("returned") or {}).get(
+        "stage", "diagnostic" if _effective_level(record) == 0 else "hint",
+    )
+
+
+def _start_level_key(record: dict):
+    if record.get("level_mode") == "server_start":
+        return "server_start"
+    return record.get("start_hint_level", record.get("hint_level"))
+
+
 def _load_run_core(
     run_dir: Path,
 ) -> Tuple[dict, List[dict], List[dict], List[dict]]:
@@ -95,10 +113,17 @@ def _load_run_core(
             "Kein Manifest im Run-Verzeichnis: " + str(run_dir)
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    generations = [
-        record for record in _read_jsonl(run_dir / GENERATIONS_FILE)
-        if record.get("execution_source") == "live_tutor_api"
-    ]
+    generations = []
+    for record in _read_jsonl(run_dir / GENERATIONS_FILE):
+        if record.get("execution_source") != "live_tutor_api":
+            continue
+        record.setdefault("condition_id", manifest.get("condition_id", "default"))
+        record.setdefault("turn_index", 0)
+        record.setdefault("level_mode", manifest.get("level_mode", "direct"))
+        record.setdefault("interaction_script_sha256", manifest.get(
+            "interaction_script_sha256", sha256_json(manifest.get("interaction_script", [])),
+        ))
+        generations.append(record)
     live_attempt_ids = {record["attempt_id"] for record in generations}
     result_ids = {
         record["attempt_id"] for record in _successful_results(generations)
@@ -112,6 +137,8 @@ def _load_run_core(
     for rating in _read_jsonl(run_dir / REVIEW_DIR / "ratings.jsonl"):
         key = (rating.get("review_id"), rating.get("rater_id"))
         if (rating.get("attempt_id") not in result_ids
+                or rating.get("rating_source", "human") != "human"
+                or rating.get("execution_source") not in {None, "human", "human_review"}
                 or not _has_ratings(rating.get("ratings") or {})
                 or key in seen):
             continue
@@ -156,16 +183,20 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
         reference = case.evaluation_only.reference.model_dump() if case else {}
         returned = record.get("returned") or {}
         hint = returned.get("hint") or ""
-        level = record.get("hint_level")
-        level_policy = policy.get(str(level), {})
+        level = _effective_level(record)
+        configuration = returned.get("configuration") or {}
+        level_policy = returned.get("hint_policy") or (
+            (configuration.get("hint_policy") or {}).get(str(level))
+        ) or policy.get(str(level), {})
+        policy_mode = returned.get("policy_mode", (configuration.get("tutor_rules") or {}).get("policy_mode", "tutor"))
         review_id = _review_id(manifest["run_id"], record["attempt_id"])
         payload = record.get("request_payload") or {}
-        stack = payload.get("stack") or {}
+        stack = payload.get("stack") or record.get("stack_context") or {}
         packet_rows.append({
             "review_id": review_id,
             "rater_id": "",
             "hilfestufe": level,
-            "hilfestufenziel": level_policy.get("goal", ""),
+            "hilfestufenziel": level_policy.get("goal", "") if policy_mode == "tutor" else "",
             "aufgabenstellung": stack.get("question_text", ""),
             "studentische_antwort": stack.get("student_answer", ""),
             "referenz_endloesung": reference.get("final_answer") or "",
@@ -173,6 +204,15 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
             "erwartete_validitaet": reference.get("expected_input_validity") or "",
             "erwartete_korrektheit": reference.get("expected_correctness") or "",
             "tutorhinweis": hint,
+            "phase": _stage(record),
+            "dialogschritt": record.get("turn_index", 0),
+            "aktuelle_nachricht": payload.get("message", ""),
+            "regelmodus": policy_mode,
+            "referenzstatus_mathematik": case.evaluation_only.verification.mathematics_status if case else "",
+            "referenzstatus_diagnose": case.evaluation_only.verification.diagnosis_status if case else "",
+            "diagnoseherkunft": (
+                case.tutor_context.diagnosis_source or case.evaluation_only.provenance.response_origin
+            ) if case else "",
             **{field: "" for field in LIKERT_FIELDS},
             **{field: "" for field in CHOICE_FIELDS},
             "begruendung": "",
@@ -184,6 +224,10 @@ def export_review_packet(run_dir: Path, limit: Optional[int] = None) -> dict:
             "profile_id": record.get("profile_id"),
             "requested_model": record.get("requested_model"),
             "hint_level": level,
+            "condition_id": record.get("condition_id", "default"),
+            "session_id": record.get("session_id"),
+            "turn_index": record.get("turn_index", 0),
+            "stage": _stage(record),
         }
     if limit is not None:
         packet_rows = packet_rows[:limit]
@@ -289,6 +333,11 @@ def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
             if not _has_ratings(values):
                 continue
             rater_id = (row.get("rater_id") or "").strip()
+            if row.get("rating_source", "human") != "human" or row.get(
+                "execution_source", "human_review"
+            ) not in {"human", "human_review"}:
+                errors.append("Zeile " + str(line_number) + ": only human ratings may be imported")
+                continue
             if not rater_id:
                 errors.append("Zeile " + str(line_number) + ": rater_id fehlt")
                 continue
@@ -319,6 +368,7 @@ def import_review_ratings(run_dir: Path, ratings_csv: Path) -> dict:
             records.append({
                 "schema_version": SCHEMA_VERSION,
                 "rubric_version": rubric_version,
+                "rating_source": "human",
                 "review_id": review_id,
                 "attempt_id": mapping[review_id]["attempt_id"],
                 "rater_id": rater_id,
@@ -415,14 +465,21 @@ def build_report(run_dir: Path) -> dict:
     summary_rows: List[dict] = []
     paired_rows: List[dict] = []
 
-    groups: Dict[Tuple[str, str, int], List[dict]] = defaultdict(list)
+    groups: Dict[Tuple, List[dict]] = defaultdict(list)
     for record in results:
+        returned = record.get("returned") or {}
         groups[(
-            _model_key(record), record.get("profile_id", "?"),
-            record.get("hint_level", 0),
+            record.get("condition_id", "default"), _model_key(record),
+            record.get("profile_id", "?"), _effective_level(record),
+            _stage(record), record.get("turn_index", 0),
+            returned.get("policy_mode", "tutor"),
+            record.get("interaction_script_sha256", sha256_json([])),
+            _start_level_key(record),
         )].append(record)
 
-    for (model, profile_id, level), records in sorted(groups.items()):
+    for (condition_id, model, profile_id, level, stage, turn_index, policy_mode, script_hash, start_level), records in sorted(
+        groups.items(), key=lambda item: str(item[0]),
+    ):
         group_ratings = [
             rating
             for record in records
@@ -432,9 +489,18 @@ def build_report(run_dir: Path) -> dict:
             bool(ratings_by_attempt.get(record["attempt_id"])) for record in records
         )
         row: dict = {
+            "condition_id": condition_id,
             "model": model,
             "profile_id": profile_id,
             "hint_level": level,
+            "effective_hint_level": level,
+            "stage": stage,
+            "turn_index": turn_index,
+            "policy_mode": policy_mode,
+            "interaction_script_sha256": script_hash,
+            "start_level": start_level,
+            "baseline_hint_levels": json.dumps(sorted({(record.get("returned") or {}).get("baseline_hint_level")
+                                                        for record in records}, key=str)),
             "n_success": len(records),
             "n_rated": n_rated,
             "n_missing_ratings": len(records) - n_rated,
@@ -463,6 +529,7 @@ def build_report(run_dir: Path) -> dict:
                 inconclusive += 1
             elif check.get("status") == "not_applicable":
                 not_applicable += 1
+                present += (check.get("evidence") or {}).get("present") is True
             elif check.get("status") in {"pass", "fail"}:
                 present += (check.get("evidence") or {}).get("present") is True
                 prohibited += check["status"] == "fail"
@@ -491,13 +558,24 @@ def build_report(run_dir: Path) -> dict:
         summary_rows.append(row)
 
     by_key: Dict[Tuple, dict] = {}
+    ambiguous_pair_cells = set()
     for record in results:
         key = (
-            record.get("case_id"), record.get("hint_level"),
+            record.get("condition_id", "default"),
+            record.get("interaction_script_sha256", sha256_json([])),
+            record.get("case_id"), _start_level_key(record),
             record.get("repetition"), _model_key(record),
+            record.get("turn_index", 0),
         )
-        by_key.setdefault(key, {})[record.get("profile_id")] = record
-    for (case_id, level, repetition, model), profile_map in sorted(by_key.items()):
+        profile_map = by_key.setdefault(key, {})
+        if record.get("profile_id") in profile_map:
+            profile_map[record.get("profile_id")] = None
+            ambiguous_pair_cells.add(key + (record.get("profile_id"),))
+        else:
+            profile_map[record.get("profile_id")] = record
+    for (condition_id, script_hash, case_id, level, repetition, model, turn_index), profile_map in sorted(
+        by_key.items(), key=lambda item: str(item[0]),
+    ):
         base_record = profile_map.get("base")
         base_helpfulness = _helpfulness(base_record, ratings_by_attempt)
         for profile_id, record in sorted(profile_map.items()):
@@ -507,8 +585,17 @@ def build_report(run_dir: Path) -> dict:
             if helpfulness is None or base_helpfulness is None:
                 continue
             paired_rows.append({
+                "condition_id": condition_id,
+                "interaction_script_sha256": script_hash,
                 "case_id": case_id,
                 "hint_level": level,
+                "effective_hint_level": _effective_level(record),
+                "base_effective_hint_level": _effective_level(base_record),
+                "baseline_hint_level": (record.get("returned") or {}).get("baseline_hint_level"),
+                "base_baseline_hint_level": (base_record.get("returned") or {}).get("baseline_hint_level"),
+                "stage": _stage(record),
+                "base_stage": _stage(base_record),
+                "turn_index": turn_index,
                 "repetition": repetition,
                 "model": model,
                 "profile_id": profile_id,
@@ -519,6 +606,7 @@ def build_report(run_dir: Path) -> dict:
             })
 
     coverage = {
+        "planned_jobs": (manifest.get("counts") or {}).get("jobs"),
         "generations_total": len(generations),
         "generations_live_success": sum(
             1 for record in generations if record.get("outcome") == "success"
@@ -529,6 +617,14 @@ def build_report(run_dir: Path) -> dict:
         "attempts_with_ratings": len(ratings_by_attempt),
         "responses_with_ratings": len(ratings_by_attempt),
         "responses_missing_ratings": len(results) - len(ratings_by_attempt),
+        "sessions_total": len({record["session_id"] for record in results if record.get("session_id")}),
+        "conditions_total": len({record.get("condition_id", "default") for record in results}),
+        "ambiguous_pair_cells": len(ambiguous_pair_cells),
+        "dependency_blocked_jobs": len({
+            event.get("job_id") for event in _read_jsonl(run_dir / runner.EVENTS_FILE)
+            if event.get("event") == "job_blocked"
+            and event.get("job_id") not in {record["job_id"] for record in results}
+        }),
     }
 
     _write_csv(derived_dir / "summary.csv", summary_rows)
@@ -544,6 +640,126 @@ def build_report(run_dir: Path) -> dict:
         "paired_rows": len(paired_rows),
         "coverage": coverage,
         "report_path": str(report_path),
+    }
+
+
+def compare_runs(run_dirs: List[Path]) -> dict:
+    """Pair conditions against the first run, using only saved live/human evidence.
+
+    Match case/profile/start selection/model/repetition/turn and the complete
+    script fingerprint. Effective levels and stages are outcomes, not keys.
+    Missing answers or ratings stay explicit; no judge scores are pooled.
+    """
+    if len(run_dirs) < 2:
+        raise ValueError("Condition comparison requires at least two runs")
+    cores = [_load_run_core(Path(directory)) for directory in run_dirs]
+    conditions = [manifest.get("condition_id", "default") for manifest, *_rest in cores]
+    if len(set(conditions)) != len(conditions):
+        raise ValueError("Compared runs must have distinct condition_id values")
+    maps = []
+    planned_keys = []
+    ratings_maps = []
+    case_hashes = []
+    for manifest, generations, _checks, ratings in cores:
+        records = _successful_results(generations)
+        cells = {}
+        by_attempt = defaultdict(list)
+        corpus_path = (manifest.get("paths") or {}).get("corpus")
+        corpus_hash = (manifest.get("hashes") or {}).get("corpus_file")
+        if corpus_path and corpus_hash and runner.sha256_file(runner.CODE_DIR / corpus_path) != corpus_hash:
+            raise ValueError("Frozen comparison corpus identity changed")
+        case_hashes.append({
+            case.case_id: sha256_json(case.model_dump(mode="json"))
+            for case in load_cases(runner.CODE_DIR / corpus_path)
+        } if corpus_path else {})
+        for rating in ratings:
+            by_attempt[rating["attempt_id"]].append(rating)
+        for record in records:
+            key = (
+                record.get("case_id"), record.get("profile_id"),
+                _start_level_key(record), record.get("repetition"), _model_key(record),
+                record.get("turn_index", 0), record["interaction_script_sha256"],
+            )
+            if key in cells:
+                raise ValueError("Multiple responses occupy a condition comparison cell")
+            cells[key] = record
+        keys = set(cells)
+        plan_path = Path(run_dirs[len(maps)]) / runner.PLAN_FILE
+        if plan_path.exists() and manifest.get("execution_mode") != "offline_demo":
+            plan_hash = manifest.get("plan_sha256") or (manifest.get("hashes") or {}).get("plan_file")
+            if plan_hash and runner.sha256_file(plan_path) != plan_hash:
+                raise ValueError("Frozen comparison plan identity changed")
+            successful_by_job = {record["job_id"]: record for record in records}
+            for job in _read_jsonl(plan_path):
+                if job.get("record_type") != "job":
+                    continue
+                model = _model_key(successful_by_job[job["job_id"]]) if job["job_id"] in successful_by_job else (
+                    job.get("model") or (manifest.get("runtime") or {}).get("default_model") or "server_default"
+                )
+                keys.add((
+                    job.get("case_id"), job.get("profile_id"), _start_level_key(job),
+                    job.get("repetition"), model, job.get("turn_index", 0),
+                    job.get("interaction_script_sha256", manifest.get("interaction_script_sha256", sha256_json([]))),
+                ))
+        maps.append(cells)
+        planned_keys.append(keys)
+        ratings_maps.append(by_attempt)
+    reference = maps[0]
+    rows = []
+    exclusions = []
+    for index, cells in enumerate(maps[1:], start=1):
+        for key in sorted(planned_keys[0] | planned_keys[index], key=str):
+            case_id, profile_id, start_level, repetition, model, turn_index, script_hash = key
+            identity = {
+                "reference_condition_id": conditions[0], "condition_id": conditions[index],
+                "case_id": case_id, "profile_id": profile_id, "start_level": start_level,
+                "repetition": repetition, "model": model, "turn_index": turn_index,
+                "interaction_script_sha256": script_hash,
+            }
+            baseline, candidate = reference.get(key), cells.get(key)
+            if baseline is None or candidate is None:
+                exclusions.append({
+                    **identity, "reason": "missing_matching_live_response",
+                    "reference_available": baseline is not None,
+                    "condition_available": candidate is not None,
+                })
+                continue
+            baseline_hash = baseline.get("case_sha256") or case_hashes[0].get(case_id)
+            candidate_hash = candidate.get("case_sha256") or case_hashes[index].get(case_id)
+            if baseline_hash is None or candidate_hash is None or baseline_hash != candidate_hash:
+                exclusions.append({**identity, "reason": "case_identity_missing_or_changed"})
+                continue
+            baseline_score = _helpfulness(baseline, ratings_maps[0])
+            candidate_score = _helpfulness(candidate, ratings_maps[index])
+            rows.append({
+                **identity,
+                "reference_run_id": cores[0][0]["run_id"],
+                "run_id": cores[index][0]["run_id"],
+                "reference_attempt_id": baseline["attempt_id"], "attempt_id": candidate["attempt_id"],
+                "reference_effective_hint_level": _effective_level(baseline),
+                "effective_hint_level": _effective_level(candidate),
+                "reference_baseline_hint_level": (baseline.get("returned") or {}).get("baseline_hint_level"),
+                "baseline_hint_level": (candidate.get("returned") or {}).get("baseline_hint_level"),
+                "reference_stage": _stage(baseline), "stage": _stage(candidate),
+                "reference_config_sha256": (baseline.get("returned") or {}).get("config_sha256"),
+                "config_sha256": (candidate.get("returned") or {}).get("config_sha256"),
+                "case_sha256": baseline_hash,
+                "reference_hilfreichkeit": baseline_score, "hilfreichkeit": candidate_score,
+                "delta": None if baseline_score is None or candidate_score is None else candidate_score - baseline_score,
+                "rating_pair_status": "complete" if baseline_score is not None and candidate_score is not None else "missing_human_rating",
+            })
+    return {
+        "reference_condition_id": conditions[0], "paired_rows": rows, "exclusions": exclusions,
+        "comparison_basis": "controlled_hypotheses_not_authoritative" if any(
+            manifest.get("allow_unverified_cases") for manifest, *_rest in cores
+        ) else "reported_verification_not_independently_verified",
+        "coverage": {
+            "expected_comparison_cells": len(rows) + len(exclusions),
+            "paired_responses": len(rows),
+            "paired_human_ratings": sum(row["delta"] is not None for row in rows),
+            "pairs_missing_human_ratings": sum(row["delta"] is None for row in rows),
+            "unmatched_cells": len(exclusions),
+        },
     }
 
 
@@ -596,9 +812,10 @@ def _render_report(
     lines.append("")
     if manifest.get("allow_unverified_cases"):
         lines.append(
-            "> **Demonstrationslauf:** Korpus enthaelt nicht verifizierte "
-            "Faelle. Ergebnisse dienen der Werkzeugpruefung, nicht der "
-            "fachlichen Aussage."
+            "> **Kontrollierte Hypothesen:** Empirische Live-Ausgaben auf "
+            "synthetischen oder nicht verifizierten Faellen. Referenzen und "
+            "Fehlerdiagnosen sind Hypothesen, keine nachgewiesenen STACK-/PRT-Urteile. "
+            "Offline-Demos bleiben von diesen Kennzahlen ausgeschlossen."
         )
         lines.append("")
     lines.append("## Technische Live-Versuche")
@@ -635,10 +852,10 @@ def _render_report(
                      "Fehlversuche bleiben technische Attempts.")
         lines.append("")
         lines.append("| Modell | Profil | Stufe | N Antworten | Bewertet | "
-                     "Ohne Rating | Prueffehler | Loesung vorhanden | "
-                     "Unzulaessig | inconclusive | Nicht anwendbar | "
-                     "Check fehlt | Hilfreichkeit (Median/n) |")
-        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+                      "Ohne Rating | Prueffehler | Loesung vorhanden | "
+                      "Unzulaessig | inconclusive | Nicht anwendbar | "
+                      "Check fehlt | Hilfreichkeit (Median/n) | Bedingung | Phase | Turn |")
+        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---:|")
         for row in summary_rows:
             lines.append(
                 "| " + str(row["model"])
@@ -657,6 +874,9 @@ def _render_report(
                 + str(row.get("rating_hilfreichkeit_naechster_schritt"))
                 + " / "
                 + str(row.get("rating_hilfreichkeit_naechster_schritt_n"))
+                + " | " + str(row["condition_id"])
+                + " | " + str(row["stage"])
+                + " | " + str(row["turn_index"])
                 + " |"
             )
         lines.append("")
@@ -669,8 +889,8 @@ def _render_report(
         )
         lines.append("")
         lines.append("| Modell | Profil | Stufe | Kriterium | ja | nein | "
-                     "unklar | nicht_anwendbar | fehlend |")
-        lines.append("|---|---|---:|---|---:|---:|---:|---:|---:|")
+                      "unklar | nicht_anwendbar | fehlend | Bedingung | Phase | Turn |")
+        lines.append("|---|---|---:|---|---:|---:|---:|---:|---:|---|---|---:|")
         for row in summary_rows:
             for field in CHOICE_FIELDS:
                 prefix = "rating_" + field
@@ -683,14 +903,15 @@ def _render_report(
                     + "/" + str(row[prefix + "_N"])
                     for value in _CHOICE_VALUES + ("fehlend",)
                 )
+                cells.extend(str(row[key]) for key in ("condition_id", "stage", "turn_index"))
                 lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
     if paired_rows:
         lines.append("## Paarvergleiche gegen base")
         lines.append("")
         lines.append("| Fall | Stufe | Wiederholung | Modell | Profil | "
-                     "Delta Hilfreichkeit |")
-        lines.append("|---|---:|---:|---|---|---:|")
+                      "Delta Hilfreichkeit | Bedingung | Turn | Effektiv | base Effektiv |")
+        lines.append("|---|---:|---:|---|---|---:|---|---:|---:|---:|")
         for row in paired_rows:
             lines.append(
                 "| " + str(row["case_id"])
@@ -699,6 +920,10 @@ def _render_report(
                 + " | " + str(row["model"])
                 + " | " + str(row["profile_id"])
                 + " | " + str(row["delta"])
+                + " | " + str(row["condition_id"])
+                + " | " + str(row["turn_index"])
+                + " | " + str(row["effective_hint_level"])
+                + " | " + str(row["base_effective_hint_level"])
                 + " |"
             )
         lines.append("")
@@ -716,6 +941,10 @@ def _render_report(
         "Bewertungen fehlen teilweise; Kennzahlen weisen ihre Nenner aus.",
         "Modellkey: requested_model, sonst zurueckgegebener Alias, sonst "
         "server_default (tatsaechlicher Alias unbekannt).",
+        "Bedingung, effektive Stufe, Phase und Turn bleiben getrennt. "
+        "Paarvergleiche kontrollieren Startwahl und Skript; adaptive Endstufen sind Ergebnisse.",
+        "Nur menschliche Ratings gehen in diese Kriterien ein; Zweitmodell-Urteile "
+        "bleiben separate Artefakte. Wiederholungen sind keine unabhaengigen Aufgaben.",
         "Telemetrie (Token, Upstream-Versuche) laut Manifest unbekannt.",
     ]:
         lines.append("- " + note)

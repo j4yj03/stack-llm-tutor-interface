@@ -6,6 +6,7 @@
 # Kopie der Kernabhängigkeiten für eine isolierte Env:
 pydantic>=2.5,<3
 requests>=2.31
+jsonschema>=4.26,<5
 
 # Optional: symbolische Formelprüfung in checks.py
 # (ohne sympy bleiben entsprechende Checks ausdrücklich "inconclusive"):

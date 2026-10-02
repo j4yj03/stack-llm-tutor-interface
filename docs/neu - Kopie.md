@@ -1,5 +1,38 @@
 # JSON-Schema und AI-Tutor-Applikation für STACK-Aufgaben
 
+## Kopienstatus: 2026-10-02
+
+**Status: historische Kopie des fruehen Erlaeuterungsentwurfs.** Der
+urspruengliche Text darunter bleibt als Archiv erhalten; diese Datei ist
+weder eine aktive App-Spezifikation noch ein eigenstaendiges Schema. Der
+[Nachtrag in neu.md](neu.md) und [eval-protocol-2](evaluation_protocol.md)
+ersetzen ihre damaligen Betriebs-/Untersuchungsannahmen.
+
+Insbesondere sind die unten gezeigten lokalen Ollama-Prompts, vermuteten
+STACK-Diagnosen und Beispielantworten nicht als beobachtete Live-Ausgaben zu
+zaehlen. Die aktuelle Task-Fehlerbank nutzt 15 authorierte synthetische
+Antworten mit expliziter Funktion und passender lokaler Referenzhypothese.
+Status `pending` und fehlende Pruefevidenz bleiben offen; der initiale Vergleich
+ist ohne PRT moeglich. Optionale unabhaengige Pruefung wird nur nach realer
+Durchfuehrung dokumentiert.
+
+Die aktuelle Standardpolicy hat Stufen 0-4, Diagnose-/Kontext-/Regel- und
+Generierungsvarianten sind konfigurierbar. Eine gemeinsame Startbaseline wird
+erst pilotiert und ausgewaehlt, dann gegen individuellen Modellstart getestet.
+Feste/adaptive Sessions verwenden identische Nachrichtenskripte und Zeiten;
+Adaptation benoetigt bei der naechsten Interaktion Zeitgrenze **und** Verwirrung.
+Ein spaeteres korrektes Skriptergebnis ist vorherbestimmt, kein Lernnachweis.
+
+Keine historischen JSON-/Python-Snippets in eine neue produktive Datei kopieren,
+ohne den [aktuellen Schemanachtrag](json_schema_info.md) und tatsaechliche API
+abzugleichen. Menschenratings bleiben vom optionalen token-/livegeschuetzten
+Zweitmodell-Judge getrennt. URL-Encoding verbirgt Antwortdaten nicht vor Logs;
+institutioneller Betrieb allein beweist keine Datenschutzkonformitaet.
+
+---
+
+## Historische Kopie
+
 ## 1. Grundidee
 
 Im geplanten System gibt es drei zentrale Komponenten:

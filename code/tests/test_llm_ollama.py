@@ -122,6 +122,15 @@ def test_ollama_empty_content(monkeypatch):
         )
 
 
+def test_ollama_honors_json_output_and_thinking_configuration(monkeypatch):
+    session = FakeSession(FakeResponse(json_data={"message": {"content": '{"hint":"Test"}'}}))
+    monkeypatch.setattr(http_module, "SESSION", session)
+    monkeypatch.setattr(config, "LLM_DISABLE_THINKING", False)
+    OllamaNativeClient().chat(MESSAGES, json_output=True)
+    assert session.calls[0]["json"]["think"] is True
+    assert session.calls[0]["json"]["format"] == "json"
+
+
 def test_ollama_missing_message(monkeypatch):
     session = FakeSession(
         FakeResponse(json_data={})

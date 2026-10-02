@@ -1,4 +1,22 @@
 {
+  "0": {
+    "name": "Diagnosephase",
+    "goal": "Mit einer kurzen diagnostischen Frage Verstaendnis und Vorgehen klaeren.",
+    "max_words": 70,
+    "may_include": [
+      "eine kurze diagnostische Frage",
+      "Nachfrage zum bisherigen Vorgehen oder Verstaendnis"
+    ],
+    "must_not_include": [
+      "konkrete Musterloesung",
+      "vollstaendige Rechnung",
+      "Endergebnis",
+      "ausgerechnete Loesungsschritte"
+    ],
+    "include_solution_steps": false,
+    "max_solution_steps": 0,
+    "include_final_answer": false
+  },
   "1": {
     "name": "Orientierung",
     "goal": "Das relevante Konzept oder den Fehlerbereich aktivieren.",

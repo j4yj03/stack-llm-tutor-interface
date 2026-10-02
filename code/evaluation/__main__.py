@@ -39,6 +39,38 @@ def _fail(message: str) -> int:
     return 2
 
 
+def cmd_cases_from_tasks(args: argparse.Namespace) -> int:
+    """Export authored task examples offline, without mathematical grading."""
+    from evaluation.task_cases import (
+        cases_from_tasks,
+        task_source_hashes,
+        write_task_cases,
+    )
+
+    tasks_dir = Path(args.tasks_dir)
+    schema_path = Path(args.schema_path) if args.schema_path else None
+    output_path = Path(args.output)
+    try:
+        cases = cases_from_tasks(tasks_dir, schema_path)
+        sources = task_source_hashes(tasks_dir, schema_path)
+        write_task_cases(cases, output_path, overwrite=args.overwrite)
+    except (CorpusError, OSError) as error:
+        return _fail(str(error))
+    _print_json({
+        "ok": True,
+        "cases": len(cases),
+        "task_instances": sorted({case.task_instance_id for case in cases}),
+        "output": str(output_path),
+        "source_task_hashes": sources,
+        "readiness": "draft",
+        "response_origin": "synthetic_fixture",
+        "mathematics_status": "pending",
+        "diagnosis_status": "pending",
+        "note": "Synthetic examples only; no STACK/PRT verification or live calls.",
+    })
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Prüft Korpus, Profile und Experiment (offline, kein Netz)."""
     try:
@@ -69,8 +101,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         "experiment_id": experiment.experiment_id,
         "allow_unverified_cases": experiment.allow_unverified_cases,
         "note": (
-            "Vor einem fachlichen Lauf müssen die verifizierten Fälle "
-            "belegt sein (verification/Belegreferenzen)."
+            "Kontrollierte Referenzhypothesen bleiben unverified. "
+            "Nur eine Studie mit behaupteter externer Bewertung benoetigt deren tatsaechliche Belege."
         ),
     })
     return 0
@@ -186,6 +218,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    task_cases_parser = subparsers.add_parser(
+        "cases-from-tasks", help="Synthetische Aufgabenbeispiele als JSONL exportieren (offline)"
+    )
+    task_cases_parser.add_argument("--tasks-dir", default=str(EVAL_DIR.parent / "tasks"))
+    task_cases_parser.add_argument("--schema-path", default=None)
+    task_cases_parser.add_argument("--output", required=True)
+    task_cases_parser.add_argument(
+        "--overwrite", action="store_true",
+        help="Die angegebene Ausgabedatei explizit ersetzen",
+    )
+    task_cases_parser.set_defaults(func=cmd_cases_from_tasks)
 
     default_profile_args = {
         "cases": str(DEFAULT_CASES),

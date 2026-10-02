@@ -1,5 +1,45 @@
 # JSON-Schema und AI-Tutor-Applikation für STACK-Aufgaben
 
+## Einordnung: 2026-10-02
+
+**Status: historischer Erlaeuterungsentwurf.** Die vereinfachten Code- und
+JSON-Beispiele darunter sind keine zweite aktuelle Implementierung und werden
+nicht als Betriebsanleitung fortgeschrieben. Aktuelle Untersuchung:
+[eval-protocol-2](evaluation_protocol.md); aktuelle Formatgrenzen:
+[Schemanachtrag](json_schema_info.md).
+
+Task-JSON-Schema und Evaluations-Caseformat sind getrennt. Formal gueltige
+Daten sind nicht automatisch mathematisch oder diagnostisch verifiziert.
+Der optionale Task-Block `evaluation_examples` bindet explizite Funktionen
+und konkrete synthetische Antworten an lokale Referenzhypothesen; der aktuelle
+Export liefert 15 Faelle und laesst offene Pruefstatus `pending`. Weder PRT-
+Ausfuehrung noch eine unabhaengige manuelle/SymPy-Pruefung wird dadurch behauptet.
+
+Die App nutzt inzwischen austauschbare `app/llm/`-Backends mit SAIA-Default,
+serverseitige Chats und konfigurierbare generische Policies. Stufe 0 ist eine
+Diagnosefrage mit eigenem Kontext, Standardmaximum 4. `provided`, `model` und
+`none` sind getrennte Diagnosebedingungen; eine LLM-Hypothese bleibt unsicher
+und darf kein externes Pruefergebnis ersetzen. Aktuelle Nachricht und Historie
+sind verschiedene Promptteile: Historie aus schaltet die neue Rueckfrage nicht aus.
+
+Die ersten Bloecke vergleichen Stufen/Startbaseline, unabhaengige versus
+gelieferte Diagnose, begruendete Regelvarianten, identische feste/adaptive
+Skriptsessions und tatsaechliche `general`-Policy. Regeln koennen empirisch
+revidiert werden; die bestehenden Defaults bleiben bis zur Auswahl Start 1,
+Text, gelieferter Fehlerkontext und keine Adaptation. Zeit allein startet weder
+einen Hinweis noch belegt sie Verwirrung. Vorgegebene korrekte Skriptantworten
+sind kein Lernergebnis.
+
+Ergebnisse brauchen echte zurueckgegebene Prompts und Policy-/Konfigurations-
+Snapshots mit Hashes. Der optionale geschuetzte Zweitmodell-Judge ist eine
+gesondert freizugebende Verarbeitung, kein Ersatz fuer Menschenratings.
+GET-Antwortdaten in Browser-/Server-/Proxylogs und institutionelles Hosting
+bleiben Governance-Fragen; TLS ist kein Konformitaetsbeweis.
+
+---
+
+## Historischer Erklärtext
+
 ## 1. Grundidee
 
 Im geplanten System gibt es drei zentrale Komponenten:

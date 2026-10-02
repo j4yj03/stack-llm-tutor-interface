@@ -1,5 +1,57 @@
 # AI Tutor für Moodle-STACK-Aufgaben
 
+## Konzeptnachtrag: 2026-10-02
+
+**Status: historische Konzeptsammlung mit aktuellem Scope-Nachtrag.** Die
+urspruenglichen Titel, lokalen Modellvorschlaege, Erwartungen und geplanten
+Studierendenstudien bleiben unten erhalten. Sie sind keine durchgefuehrten
+Experimente. Aktuelles Design: [eval-protocol-2](evaluation_protocol.md).
+
+Der empirische Einstieg nutzt 15 konkrete synthetische Antworten aus den
+optionalen `evaluation_examples` zweier Task-Dateien. Funktionen werden
+explizit benannt und an passende lokale Referenzen gebunden, nicht aus
+Antworten erraten. Erwartete Fehler sind kontrollierte Hypothesen, keine
+PRT-Ergebnisse; Mathematik-/Diagnosestatus bleiben `pending`, solange keine
+tatsaechliche unabhaengige Pruefung dokumentiert ist. Ein PRT ist fuer diesen
+ersten Vergleich keine Voraussetzung.
+
+Die aktuellen Forschungsfragen erweitern die alten Kontextideen: alle
+generischen Stufen-/Tutorregeln, Kontextfelder und Generierungsparameter sind
+kontrolliert vergleichbar. Zuerst Stufen 0-4 einschliesslich diagnostischer
+Frage mit Kontext pilotieren, dann eine gemeinsame Baseline auswaehlen und auf
+Held-out-Antworten gegen eine individuelle Modellstartwahl testen. Separat
+eine unabhaengige LLM-Diagnosehypothese mit geliefertem Fehlerkontext und
+wenigen begruendeten Regelkontrasten vergleichen. `base` ist dabei nicht die
+allgemeine Modellbedingung; diese braucht tatsaechlich `general`-Policy.
+
+Adaptive Unterstuetzung wird erst bei einer naechsten Nachricht nach
+Zeitgrenze **und** Verwirrungssignal geprueft. Identische Nachrichtenskripte und
+simulierte Zeiten machen den Mechanismus vergleichbar, beweisen aber keinen
+Lern- oder Motivationseffekt. Eine spaetere korrekte Skriptantwort wurde vorher
+festgelegt. Startbaseline, effektive Stufe und Kontext getrennt beobachten.
+
+Die Serverdefaults bleiben Start 1, Textausgabe, gelieferter Fehlerkontext und
+keine Adaptation. Neue Betriebspolicies koennen nach empirischer Auswahl
+begruendet werden; sie sind nicht durch die alten Erwartungen unten bewiesen.
+Der Defaultbackend ist SAIA mit austauschbarem lokalen Ollama-Fallback, nicht
+zwingend ein lokal an der HTW betriebenes Modell.
+
+Ein optionaler Zweitmodell-Judge ist implementiert, bleibt standardmaessig
+deaktiviert und braucht Token plus explizite Live-Freigabe. Er nutzt gemeinsame
+Referenzen, einen abweichenden gespeicherten Modellalias und getrennte
+Artefakte; seine Ratings werden nicht mit Menschenratings zusammengelegt.
+
+Institutionelles Hosting ist kein Konformitaetsbeweis. Die unten gezeigten
+GET-Links koennen `ans1` in Browserhistorie und Logs speichern; selbst ohne
+Namen kann eine Antwort personenbezogenen Bezug besitzen. Vor realer Nutzung
+Datenpfade, Aufbewahrung, Zugriffsrechte und den zusaetzlichen Judge-Verarbeiter
+pruefen. Der [Architekturnachtrag](softwarearchitektur.md) und das Protokoll
+trennen Implementierung, offene Deploymentpruefungen und geplante Studien.
+
+---
+
+## Historischer Konzepttext
+
 ## Arbeitstitel
 
 **Entwicklung eines KI-gestützten Tutors für Moodle-STACK-Aufgaben in mathematischen Grundlagenmodulen**

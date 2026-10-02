@@ -1,4 +1,63 @@
-# Exposé Abschlussarbeit IKT-Master 
+# Exposé Abschlussarbeit IKT-Master
+
+## Scope-Ergänzung: 2026-10-02
+
+**Status: datierter Nachtrag zur historischen Markdown-Vorversion.** Titel,
+Forschungsfragen, Zeitplan und Fliesstext darunter bleiben als urspruenglicher
+Entwurf erhalten. Dieser Nachtrag aendert keine Expose-PDFs oder LaTeX-Quellen.
+Der aktuelle Untersuchungsentwurf ist [eval-protocol-2](evaluation_protocol.md).
+
+Die erste empirische Untersuchung startet mit einer kontrollierten
+aufgabenabgeleiteten synthetischen Fehlerbank, **nicht mit einem bereits
+verifizierten PRT**. Optional `evaluation_examples` authoriert 15 konkrete
+Antworten fuer zwei explizite feste Funktionen mit passenden lokalen
+`model_solution`-Referenzen. Fehlerlabels und Referenzloesungen sind Hypothesen;
+Mathematik-/Diagnosestatus bleiben `pending`, bis eine echte unabhaengige
+manuelle, SymPy- oder spaetere STACK-Pruefung samt Evidenz dokumentiert wird.
+
+Die Untersuchung umfasst vier getrennte Bloecke statt eines vollstaendigen
+Parameterkreuzprodukts:
+
+1. Stufen 0-4 einschliesslich kontextgestuetzter diagnostischer Frage pilotieren,
+   gemeinsame Startbaseline auswaehlen und auf Held-out-Initialantworten gegen
+   individuellen Modellstart testen.
+2. Unabhaengige LLM-Diagnosehypothese mit bereitgestelltem synthetischem
+   Fehlerkontext vergleichen; wenige begruendete Tutorregel-, Kontext- und
+   Generierungsvarianten getrennt untersuchen.
+3. Feste und adaptive Folgeinteraktion mit identischen Skriptnachrichten und
+   Zeiten vergleichen. Zeitgrenze UND Verwirrungssignal entscheiden erst bei
+   einer neuen Nachricht, nie durch einen autonomen Timer.
+4. Einen allgemeinen Assistenten mit tatsaechlicher `general`-Serverpolicy
+   vergleichen; das Kontextprofil `base` allein ist kein allgemeiner Assistent.
+
+Die Regeln sind veraenderbare Designannahmen, nicht unveraenderliche
+Produktionsvorgaben. Konfiguration, aktive Policy, effektive Optionen und
+tatsaechliche Prompts werden pro Bedingung beobachtet/gehasht. Bis zur expliziten
+Auswahl bleiben die Serverdefaults Start 1, `fixed`, `provided`, `tutor`, `text`
+und Adaptation aus. Ein lokaler Promptpreview ist kein Servernachweis.
+
+Technisch handelt es sich hier um kontrolliertes aufgaben-ID-basiertes
+Kontextladen, nicht um eine implementierte Vektor-Retrieval-Pipeline.
+Der Begriff RAG im Alttext ist entsprechend als damaliges Konzept einzuordnen.
+Backend ist aktuell SAIA mit austauschbarem Ollama-Fallback; der Ansatz
+verpflichtet sich nicht auf ein bestimmtes lokales Modell.
+
+Menschenratings, technische Checks, Offenlegungsindikatoren und optionale
+Zweitmodell-Judgewerte bleiben getrennt. Der Judge ist implementiert, aber
+deaktiviert und nur mit Token, anderem gespeicherten Modellalias und expliziter
+Live-Freigabe ausfuehrbar. Referenzhypothesen werden dadurch nicht zur
+mathematischen Autoritaet.
+
+Die Blöcke sind geplante Vergleiche, keine berichteten Ergebnisse. Skriptdialoge
+und vorherbestimmte korrekte Folgeantworten belegen weder Lernen noch
+Motivation. Eine reale Studierenden-/Think-Aloud-Studie braucht ein eigenes
+Design und Freigaben. Auch institutionelles Hosting/TLS sind kein Nachweis
+rechtlicher Konformitaet; GET-Antwortdaten, Logs, SQLite, Artefakte und
+zusaetzliche Judge-Verarbeitung gehoeren in die Governance-Pruefung.
+
+---
+
+## Historische Markdown-Fassung
 
 ## Arbeitstitel
 

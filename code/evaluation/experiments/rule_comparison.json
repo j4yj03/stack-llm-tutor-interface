@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "task-rule-comparison-v2",
+  "protocol_version": "eval-protocol-2",
+  "condition_id": "authored-rule-pilot",
+  "description": "Kontrollierter Regelpilot auf authored Task-/Antwort-/Fehlerhypothesen, ohne PRT. Eine konfigurierte Tutorinstanz pro Run; andere Regeln benoetigen eine eigene Bedingung und RUN_ID. Kein automatisch gewaehlter optimaler Baselinewert.",
+  "corpus_file": "evaluation/imports/task_cases.jsonl",
+  "profiles": ["base", "diagnosis", "feedback", "diagnosis_feedback"],
+  "hint_levels": [0, 1, 2, 3, 4],
+  "repetitions": 1,
+  "models": [],
+  "max_generations_per_hour": 35,
+  "request_budget_units_per_hour": 80,
+  "order_seed": 20261002,
+  "allow_unverified_cases": true,
+  "allow_task_derived_cases": true
+}

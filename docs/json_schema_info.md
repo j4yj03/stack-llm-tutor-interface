@@ -1,5 +1,65 @@
 # Konkretes JSON-Schema für eine STACK-AI-Tutor-Aufgaben-Datenbank
 
+## Schemanachtrag: 2026-10-02
+
+**Status: archivierter Schemaentwurf, nicht das aktuell ausgefuehrte Schema.**
+Die langen JSON-Beispiele darunter bleiben als Entwurfsartefakte erhalten.
+Verbindliche formale Definition fuer Task-Dateien ist
+[`code/schemas/stack_ai_tutor_task.schema.json`](../code/schemas/stack_ai_tutor_task.schema.json);
+das Case-/Experimentformat wird separat in `code/evaluation/models.py`
+definiert. Untersuchungsdesign: [eval-protocol-2](evaluation_protocol.md).
+
+### Aktuelle Formatgrenzen
+
+- Tasks enthalten generische Anweisung, optionales `question_text_template`
+  mit `{funktion}`, Lernziele, Diagnosebeschreibungen und feste lokale
+  Beispielreferenzen. Moodle-Varianten duerfen diese feste `model_solution`
+  nicht als eigene Referenz erhalten.
+- `tutor_policy`, Task-`hint_levels` und `prompt_context_policy` sind weiterhin
+  Legacy-Pflichtfelder im Taskformat. Die aktive generische Laufzeitpolicy
+  kommt aus `HintPolicy`, nicht aus den unten entworfenen Taskstufen.
+- Die zentrale Standardpolicy definiert 0-4 einschliesslich Diagnosefrage;
+  Ziele, Wort-/Schrittlimits und Freigaben sind konfigurierbare Bedingungen.
+  Eine andere Obergrenze benoetigt passende vollstaendige Policies.
+- Ein optionales `evaluation_examples` hat `instance_id`, explizite `function`
+  und `answers`. Antworten haben `case_id`, `student_answer`, erwartete
+  Validitaet/Korrektheit und optional `expected_error` als Task-Diagnosekey.
+  Weglassen oder `null` bedeutet kein bereitgestelltes Fehlerlabel.
+- Aktuell enthalten zwei Tasks 15 synthetische Antworten zu den festen
+  Funktionen `f(x)=-5*exp(x^2-2*exp(x))` und `f(x)=x^2*sin(x)`. Der Export
+  bildet den konkreten Aufgabentext mit dem Template und uebernimmt nur die
+  passende lokale Referenz; mathematische Passung muss separat geprueft werden.
+
+### Validierung ist kein Evidenznachweis
+
+`cases_from_tasks` validiert das aktuelle Taskformat, IDs und referenzierte
+Fehlerkeys offline. Es setzt `draft`, `synthetic_fixture`, `task_derived` und
+offene Mathematik-/Diagnosepruefung (`pending`), nicht `verified`. JSON Schema
+prueft Struktur und Wertebereiche, nicht die Ableitung, Fehlerursache, PRT-
+Korrektheit oder Lerntauglichkeit. Optionale manuelle/SymPy-Pruefung braucht
+tatsaechliche Evidenz; vorhandene Status nicht zum Freischalten von Runs aendern.
+
+Die synthetische Provenienz bleibt `response_origin="synthetic_fixture"`.
+Der zentrale API-Payload-Builder normalisiert eine uebertragene synthetische
+Diagnoseherkunft auf `diagnosis_source="synthetic"`, auch beim direkten
+Task-/CLI-Weg. Diese Formatangleichung ist implementiert; sie bedeutet weder
+PRT-Herkunft noch Scoreverifikation und veraendert kein `pending`.
+
+Der erste empirische Vergleich braucht keinen PRT und kann diese kontrollierte
+Fehlerbank mit expliziten `allow_task_derived_cases`-/`allow_unverified_cases`-
+Opt-ins verwenden. Referenzhypothesen und erwartete Labels bleiben in
+`evaluation_only`; Loesungsdaten gehen nur bei beiden aktiven Freigaben an den
+Generator. Ein interner Guard-Wert ist nicht gleich sichtbarer Promptkontext.
+
+Die aelteren Beispiele fuer `evaluation_metadata` darunter sind nicht als
+aktueller Taskexport zu uebernehmen. Menschenratings, optionale Judgewerte,
+Simulationsskripte und echte Serverkonfiguration gehoeren in eigene
+Evaluationsartefakte, nicht als versteckte Tutorantworten ins Taskformat.
+
+---
+
+## Historischer Schemaentwurf
+
 Dieses Dokument beschreibt ein konkretes JSON-Schema für Aufgaben eines KI-gestützten Tutors für Moodle-STACK-Aufgaben.
 
 Die Struktur ist für einen Prototyp gedacht, bei dem:

@@ -54,6 +54,17 @@ def initialize_database(
             ON messages(chat_id, message_id);
             """
         )
+        # Explicit additive migration for already persisted prototype sessions.
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(chats)")}
+        if "baseline_hint_level" not in columns:
+            connection.execute("ALTER TABLE chats ADD COLUMN baseline_hint_level INTEGER")
+        connection.execute("UPDATE chats SET baseline_hint_level=current_hint_level WHERE baseline_hint_level IS NULL")
+        if "session_state_json" not in columns:
+            connection.execute("ALTER TABLE chats ADD COLUMN session_state_json TEXT NOT NULL DEFAULT '{}'")
         connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()

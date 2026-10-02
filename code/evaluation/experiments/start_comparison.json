@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "task-start-comparison-v2",
+  "protocol_version": "eval-protocol-2",
+  "condition_id": "server-start-pilot",
+  "description": "Serverseitige Startwahl auf authored Hypothesen. TUTOR_START_MODE=fixed mit empirisch dokumentierter Basis vs individual auf getrennten Instanzen/Runs vergleichen. Level 0 ist nur Planplatzhalter; die beobachtete Startstufe ist das Outcome.",
+  "corpus_file": "evaluation/imports/task_cases.jsonl",
+  "profiles": ["base", "diagnosis_feedback"],
+  "hint_levels": [0],
+  "level_mode": "server_start",
+  "repetitions": 1,
+  "models": [],
+  "max_generations_per_hour": 35,
+  "request_budget_units_per_hour": 80,
+  "order_seed": 20261002,
+  "allow_unverified_cases": true,
+  "allow_task_derived_cases": true
+}

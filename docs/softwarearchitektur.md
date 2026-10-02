@@ -1,5 +1,128 @@
 # Softwarearchitektur des STACK-LLM-Tutors
 
+## Implementierungsnachtrag: 2026-10-02
+
+**Status: aktueller Nachtrag vor einem historischen Architekturentwurf.** Die
+nummerierten Altabschnitte darunter beschreiben fruehere Ollama-/LiteLLM-
+Zustaende. Modellnamen, Pfade, offene Arbeiten und Python-3.9-Angaben dort sind
+keine aktuellen Betriebszusagen. Die Referenzumgebung ist Python 3.11; der
+gepinnte Serverstack setzt mindestens Python 3.10 voraus. Untersuchungsdesign:
+[eval-protocol-2](evaluation_protocol.md); Kontextabgleich:
+[auswertung_kontextsteuerung.md](auswertung_kontextsteuerung.md).
+
+### Rollen und empirischer Einstieg
+
+STACK bleibt bei tatsaechlich gelieferten verifizierten Ergebnissen die
+mathematische Autoritaet. Der erste empirische Vergleich braucht jedoch keinen
+PRT: 15 konkrete synthetische Antworten aus optionalen `evaluation_examples`
+der Task-Dateien liefern kontrollierte Referenzhypothesen. Jede explizite
+Funktion muss zu ihrer lokalen `model_solution` passen. `pending`-Status,
+fehlende Evidenz und `score=None` werden nicht in vermeintliche Pruefergebnisse
+umgedeutet. Unabhaengige manuelle/SymPy-Pruefung ist ein eigener Nachweisschritt.
+
+Das LLM kann im Modus `model` eine unsichere Diagnosehypothese formulieren;
+`provided` verwendet sichtbaren gelieferten Fehlerkontext, `none` unterdrueckt
+Diagnosen. Die Hypothese verifiziert keinen Score und ueberschreibt keine
+externe Bewertung. Der empirische Vergleich von Diagnosemodi, Stufe 0 und
+Regelvarianten darf spaetere
+Betriebspolicies begruenden; Tutorregeln sind nicht unveraenderlich.
+
+### Aktuelle Komponenten
+
+Alle Anwendungspfade liegen unter `code/`, nicht direkt unter der Repo-Wurzel.
+
+| Modul | Aktuelle Verantwortung |
+|---|---|
+| `app/config.py`, `app/hint_policy.py` | Env-Konfiguration, zentrale generische Policies, Stufen 0 bis `MAX_HINT_LEVEL` mit Standardmaximum 4 |
+| `app/runtime_config.py` | Effektive Kontextkappung und oeffentliche Konfigurationssnapshot-/Hashbildung |
+| `app/prompt_builder.py` | Ausgewaehlter Kontext, aktive Regeln, aktuelle Nachricht auch ohne Historie, Doppelpruefung fuer Referenzfelder |
+| `app/adaptation.py` | Entscheidung erst bei naechster Interaktion, Zeitgrenze UND Verwirrung, keine Timer-Generierung |
+| `app/main.py` | Moodle-/HTML-/JSON-Flows, feste oder individuelle Startwahl, Generierung und erfolgreiche Stufenfortschreibung |
+| `app/database.py`, `app/chat_store.py` | Serverhistorie, Baseline-Stufe und Sitzungszustand; additive Migration vorhandener Prototype-Daten |
+| `app/llm/` | Austauschbare SAIA-/Ollama-Clients; `ollama_client.py` ist ein Kompatibilitaetswrapper |
+| `app/evaluation_api.py` | Opt-in-Konfigurations- und Judge-Router, Tokenpruefung, kein DB-/Chatzugriff |
+| `evaluation/task_cases.py`, `models.py`, `corpus.py` | Offline-Taskexport und getrenntes Case-/Bedingungsformat |
+| `evaluation/runner.py`, `checks.py`, `report.py`, `judge.py` | Gepinnte Bedingungen, serielle Skriptsessions, beobachtete Checks, getrennte Menschen-/Modellberichte |
+
+Die unveraenderten Defaults sind `TUTOR_START_LEVEL=1`, `fixed`, `provided`,
+`tutor`, `text` und Adaptation aus. Die Stage-0-Policy und ihr Kontext sind
+separat konfigurierbar. Ein explizites Startlevel umgeht `individual`; ohne
+dieses verwendet die API-Startwahl die angeforderten Optionen unter Stufe-0-
+Caps und Diagnosemodus, nicht globale HTML-Optionen. Ohne Requestoptionen gelten
+Defaults. Auswahlprompt/-optionen und effektiver Antwortprompt werden getrennt
+beobachtet; `start_selection_context` prueft die Selektorevidenz. Die Modellwahl
+ist eine Unterstuetzungsentscheidung, keine mathematische Note. Eine gemeinsame
+empirische Startbaseline ist noch manuell nach vorab festzulegenden
+Pilotkriterien und konkreten Belegen auszuwaehlen, nicht automatisch optimiert.
+
+Die Chat-Tabelle erhaelt `baseline_hint_level` und `session_state_json`.
+Baseline und effektive Stufe nicht verwechseln. Anpassungen werden auf die
+naechste Nachricht angewendet, nicht durch ein Hintergrundereignis. Das
+monotone Intervall seit der letzten erfolgreichen Antwort ist nur mit passender
+prozessgebundener `clock_id` bekannt; nach Neustart oder auf einem anderen
+Worker bleibt es unbekannt. Es kann Leerlauf enthalten und ist keine aktive
+Lernzeit. Authentifizierte Simulationszeit ist ein endlicher Skriptwert von
+0 bis 86400 Sekunden, keine echte Warte-/Bearbeitungszeit. Fehlgeschlagene Antworten
+lassen die bisherige Stufe bestehen, koennen aber eine Usernachricht bereits
+gespeichert haben; Idempotenz und parallele Verarbeitung sind keine zugesagten
+Eigenschaften.
+
+### Schnittstellen und Beobachtung
+
+Neben den im Archiv genannten Routen bestehen HTML-POSTs fuer Nachricht und
+Retry sowie `GET /api/evaluation/config` und `POST /api/evaluation/judge`.
+Evaluationsrouten sind standardmaessig aus, bei Aktivierung mit
+`X-Evaluation-Token` geschuetzt; dieselbe Pruefung gilt fuer explizite
+Zeit-/Verwirrungssimulation. Das ist keine allgemeine Authentifizierung der
+Tutor-Chats. `/start` bleibt der Moodle-kompatible GET-Adapter.
+
+JSON-Antworten enthalten die tatsaechliche `hint_policy`, `configuration`,
+`config_sha256`, `prompt_messages`, effektive Optionen, Startentscheidung,
+`baseline_hint_level`, Adaptationsmetadaten und gegebenenfalls
+`diagnosis_hypothesis`. Ein Hash ist eine Inhaltsidentitaet, kein Beweis
+providerinterner Gewichte oder rechtlicher Konformitaet. Keine Rekonstruktion
+fehlender Serverprompts aus einem lokalen Preview.
+
+Die aktive Policy wird beim App-Start geladen und gemeinsam von Generierung,
+`/health` und `/api/evaluation/config` genutzt. Env-/Dateiaenderungen brauchen
+einen Neustart und neue Bedingungsidentitaet; Konfigurations-GET ist kein
+Hot-Swap. Notebookvorbereitung verwendet jetzt `eval-protocol-2` und bietet
+Bedingungs-/Skriptsteuerung, aber keine automatische empirische Baselinewahl.
+
+Eine `general`-Bedingung benoetigt wirklich `TUTOR_POLICY_MODE=general`;
+`base` ist nur ein Kontextprofil. Loesungsdaten bleiben auch dort technisch
+zweifach freigegeben. Ausgabeanwesenheit und Verstoss gegen aktive Regeln
+getrennt berichten. Der optional gesondert freigegebene Judge nutzt einen
+anderen Generator-/Judgealias und schreibt nur eigene Evaluationsartefakte;
+seine Werte sind weder Menschenratings noch mathematische Verifikation.
+Regelversion `judge-rubric-1.0-v2` erhaelt separate `diagnosis_hypothesis`,
+`current_message`, `turn_index` und whitelisted `generator_rule_settings` aus
+gespeicherten Antworten/Konfigurationen. Inaktive Regeln werden nicht als
+Anforderungen angenommen; fehlende Werte bleiben unbekannt. Berichte trennen
+Modellratings nach Bedingung und Turn, ohne Menschenratings einzumischen.
+
+### Infrastruktur und Governance
+
+Defaultbackend ist GWDG SAIA (`LLM_*`), lokales Ollama bleibt ein Fallback.
+Die im Archiv gezeigten HTW-Endpunkte und Digests sind historische Angaben,
+keine aktuelle Alias-/Verfuegbarkeitspruefung. Fuer diese Dokumentationsarbeit
+wurde kein externer Dienst abgefragt.
+
+TLS, HTML-Escaping, Inputlimits und institutioneller Betrieb ersetzen keine
+Datenschutz-/Zugriffspruefung. GET-Parameter mit Antwort/Funktion koennen in
+Browserhistorie und Server-/Proxylogs landen. SQLite, Prompt-/Laufartefakte,
+Exports, Backups und Providerlogs muessen im Aufbewahrungsplan stehen. Ein Judge
+ist ein zusaetzlicher Verarbeitungsschritt, auch bei derselben Institution.
+
+STACK `/render`, `/validate`, `/grade`, reale Moodle-Feldvalidierung,
+vollstaendige Ausgabekontrolle und eine Lernstudie bleiben getrennte offene
+Nachweise. Vorhandene CLI-Funktionen/Offline-Tests sind keine ausgefuehrten
+Block-A-D-Experimente oder schon fertige Notebook-Presets.
+
+---
+
+## Historischer Architekturentwurf
+
 ## 1. Ziel des Systems
 
 Das Projekt implementiert einen prototypischen KI-Tutor für digitale Mathematikaufgaben in Moodle/STACK.

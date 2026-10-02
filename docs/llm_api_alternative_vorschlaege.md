@@ -1,5 +1,56 @@
 # Empfehlungen: Alternative LLM-APIs nach Abschaltung der Hochschul-Ollama-API
 
+## Infrastruktur-Nachtrag: 2026-10-02
+
+**Status: historischer Alternativenvergleich, kein aktueller Zugangstest.**
+Die damaligen HTW-/`OLLAMA_*`-Beispiele darunter bleiben als Archiv erhalten.
+Aktueller Implementierungsstand: [Architekturnachtrag](softwarearchitektur.md);
+empirische Nutzung: [eval-protocol-2](evaluation_protocol.md).
+
+Der Defaultbackend ist inzwischen `LLM_API_MODE=saia` mit GWDG-SAIA-Basis-URL
+`https://chat-ai.academiccloud.de/v1` und konfiguriertem Alias `qwen3.8-27b`.
+Dies ist eine Code-/Konfigurationsangabe, keine neue Live-Verifikation der
+Verfuegbarkeit oder Modellgewichte. `app/llm/` bietet den SAIA- und nativen
+Ollama-Adapter; `ollama_client.py` delegiert als Kompatibilitaetswrapper.
+Aktuelle Konfiguration nutzt `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` und
+`LLM_ALLOWED_MODELS`, nicht die alten `OLLAMA_API_KEY`-Empfehlungen.
+
+Die historischen HTTP-401/404-Befunde zeigen Erreichbarkeit und den beobachteten
+Auth-/Routenvertrag, nicht die erfolgreiche Generierung oder den richtigen
+Modellalias. Den unten behaupteten minimalen Wechsel durch nur einen alten
+Keyparameter nicht als aktuelle Migration ausfuehren. Modellliste, Backend,
+angeforderte Temperatur/Tokenlimits und tatsaechliche Tutorpolicy pro Bedingung
+beobachten; Parameter-/Aliasgleichheit ist keine bitgenaue Modellidentitaet.
+
+### Verarbeitung und Freigabe
+
+Die Datenschutzspalte des historischen Vergleichs ist eine damalige
+qualitative Einschaetzung, **kein Konformitaetsbeweis**. Auch lokales oder
+institutionelles Hosting benoetigt Rechtsgrundlage, Rollen-/Empfaengerpruefung,
+Zugriffsschutz und Loesch-/Aufbewahrungsregeln. TLS-Zertifikatspruefung bleibt
+aktiv, schuetzt aber nicht vor Speicherung der GET-Antwortdaten in
+Browserhistorie sowie Webserver-/Proxylogs.
+
+Die erste empirische Fehlerbank ist synthetisch und braucht keine realen
+Studierendendaten oder PRT-Anbindung. Referenzen/Fehlerlabels bleiben
+Hypothesen mit offener Evidenz. SQLite, Lauf-Inputs, Prompts, Exportdateien,
+Backups und Providerlogs gehoeren dennoch zum dokumentierten Datenpfad.
+
+Ein optionaler Zweitmodell-Judge ist zusaetzliche Verarbeitung und kann
+Referenzen sowie beobachtete Prompts sehen. Er braucht eigene explizite
+Freigabe, aktivierten geschuetzten Router, Token, erlaubten anderen
+Generator-/Judgealias und ein gemeinsames konservatives Requestbudget.
+Die API-Defaults starten weder Generator noch Judge automatisch; keine
+Credentials in URL, Logs, Prompt oder Laufmanifest schreiben.
+
+Die GWDG-Nennung in Literatur oder Infrastruktur allein beweist weder, dass
+ein fremdes Projekt denselben SAIA-Endpunkt bzw. dasselbe Modell nutzt, noch
+dass dessen rechtliche Bewertung auf diesen Prototyp uebertragbar ist.
+
+---
+
+## Historischer Alternativenvergleich
+
 ## Kontext
 
 Der Betreiber der Hochschul-Infrastruktur hat mitgeteilt, dass die native
@@ -54,8 +105,10 @@ LiteLLM) hin.
 - `code/requirements.txt`:
   - `python-dotenv` ergänzt
 
-Hinweis: Ohne gültigen Key bleibt es bei `HTTP 401`. Einen Key nicht
-erfinden (siehe AGENTS.md: „Do not work around this by inventing a token").
+Hinweis zum historischen Befund: Ohne gueltigen Betreiberzugang blieb es bei
+`HTTP 401`. Fehlende Zugangsdaten nicht erfinden; aktuelle Variablennamen und
+Auth-Vertraege stehen im Infrastruktur-Nachtrag, nicht in einem frueheren
+Agentenhinweis.
 
 ## Konfigurationsbeispiele
 

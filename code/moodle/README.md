@@ -1,11 +1,20 @@
 # Moodle-Snippets für den KI-Tutor
 
+Stand der Serveranbindung: 2026-10-02. Die CASText-/STACK-JS-Bausteine sind
+unveraendert; neue Start-, Diagnose- und Adaptionsbedingungen liegen auf dem
+Tutorserver. APIvertrag: [../app/README.md](../app/README.md); Parameter:
+[../config/README.md](../config/README.md). Die historischen Quellenbelege und
+Installationsschritte unten bleiben erhalten, ohne eine neue Deploymentabnahme
+oder aktuelle Testpasszahl zu behaupten.
+
 ## Feld-Zuordnung
 
 Dies sind **Referenzbausteine für einzelne Moodle/STACK-Zielfelder**, kein
 vollständiger Fragenexport und keine eigenständig ausgeführten JavaScript-Dateien.
-Der Tutor-Link steht im Fragetext. Nur STACK bewertet Mathematik und liefert
-PRT-Diagnosen; JavaScript transportiert Daten, das LLM formuliert Hinweise.
+Der Tutor-Link steht im Fragetext. Nur STACK liefert autoritatives Grading und
+PRT-Diagnosen; JavaScript transportiert Daten. Das LLM formuliert Hinweise
+oder in einer expliziten Modellbedingung unsichere Fehlerhypothesen,
+niemals neue verbindliche STACK-Ergebnisse.
 
 | Datei | Moodle/STACK-Zielfeld | Inhalt |
 | --- | --- | --- |
@@ -30,7 +39,9 @@ Der Baustein setzt bewusst **kein** `[[feedback:...]]`-Tag in den Fragetext:
 Das PRT-Feedback erscheint als spezifisches Feedback gemäß den Moodle-/Test-
 Einstellungen. Ist es dort nicht sichtbar (z. B. Review-Optionen in Tests oder
 abgeschaltetes Feedback), kann der Baustein keinen Diagnose-Marker lesen; der
-Tutor-Link bleibt dann bei `unknown_error` und es gibt nur allgemeine Hinweise [3].
+Tutor-Link bleibt dann bei `unknown_error`; in der Defaultbedingung `provided`
+gibt es allgemeine nicht-spekulative Hinweise [3]. Eine explizite Modellanalyse
+ist davon unabhaengig und kein nachtraeglich gelesener PRT-Befund.
 
 ## Migration
 
@@ -125,9 +136,48 @@ URL-Encoding und HTML-Escaping sind unterschiedliche Schritte.
 | `qid` | Konfigurierte Backend-Aufgaben-ID |
 | `diagnosis` | Zugeordneter PRT-Code, sonst `unknown_error` |
 | `ans1` | Aktueller Spiegelwert, nicht mathematisch normalisiert oder vorcodiert |
-| `hint_level` | `1` |
+| `hint_level` | Weiterhin explizit `1`; uebersteuert serverseitige Defaultstartwahl |
 | `model` | Nur bei nichtleerem `MODEL` |
 | `funktion` | Instanziierte Funktion `f({#v#})={#p#}`, maximal 5000 Zeichen; das Backend setzt sie in den generischen Textbaustein ein |
+
+## Serverbedingungen
+
+Der Server akzeptiert `0..MAX_HINT_LEVEL`, Defaultmaximum 4. Fehlt die
+Startstufe, gelten `TUTOR_START_LEVEL=1` und `TUTOR_START_MODE=fixed|individual`;
+individuelle Auswahl braucht eine zusaetzliche LLM-Operation vor der Antwort.
+Der unveraenderte Snippetlink sendet ausdruecklich 1 und umgeht diese Auswahl.
+Diagnosephase 0 entsteht hier nur durch explizite Anforderung; sie wird nicht
+durch Aendern des Serverdefaults in vorhandene Level-1-Links hineingelesen.
+Ein eigener server_start-Vergleich braucht eine gezielt andere Anforderung,
+nicht eine Behauptung ueber unveraenderte Moodlelinks.
+
+Stage 0 erzeugt im Tutormodus eine kurze Diagnosefrage und begrenzt den
+angeforderten Kontext mittels `TUTOR_STAGE0_CONTEXT_OPTIONS`. Standardmaessig
+kein Diagnosecode, Feedback, Score oder Referenzloesung. Sie bewertet die
+Moodleantwort nicht selbst. Spaetere Hinweise behalten den Variantenschutz.
+
+`TUTOR_DIAGNOSIS_MODE=provided` nutzt bereitgestellten Fehlerkontext; `/start`
+markiert den URL-/Task-Kontext konservativ als `diagnosis_source="provided"`.
+Ein editierbarer Link ist kein authentifiziertes PRT-Ergebnis, auch wenn der
+Code urspruenglich aus einem korrekt gebundenen Marker kam. `model` entfernt
+Code/Feedback aus dem effektiven Prompt und erlaubt eigenstaendige unsichere
+Fehleranalyse; `none` entfernt sie und erzeugt keine Diagnose. Die Scoreoption
+bleibt separat. Verifizierte tatsaechlich bereitgestellte STACK-/PRT-Evidenz
+darf in keinem Modus ueberschrieben werden.
+
+`TUTOR_POLICY_MODE=general` ist eine allgemeine Assistentenbedingung im selben
+Transport; es ersetzt weder Inputvalidierung noch Grading. Aktivierte Adaption
+wird erst bei einer Folgefrage im Tutorchat aus Serverintervall plus Selbstbericht
+entschieden (Default aus, Schwelle 120 Sekunden, Schritt 1, Ceiling konfigurierbar).
+Kein Timer oder Hintergrundhint im Moodle-/Tutortab. Das Serverintervall ist
+keine Messung der Bearbeitungszeit einer STACK-Aufgabe; nur die monotone Uhr
+desselben Prozesses ist nutzbar. Nach Neustart/Workerwechsel bleibt das
+Intervall unbekannt, ohne Rueckschluss aus Wallclockzeiten.
+
+Keine Evaluationstokens in CASText, Links oder Hiddenfelder aufnehmen.
+Geschuetzte Config-/Judge-/Simulationsaufrufe sind ein separater autorisierter
+Evaluationsclientpfad, nicht Funktion dieser Snippets:
+[../evaluation/README.md](../evaluation/README.md).
 
 ## Diagnose und Timing
 
@@ -186,7 +236,9 @@ Erscheinung tritt:
   „PRT-Diagnose: <code>…“ (Entwicklung/Analyse).
 - `debug:0;` — kein Marker im Feedback, die Bridge findet keinen Code, der
   Link bleibt bei `unknown_error` und der Tutorbereich zeigt **keine**
-  Diagnosezeile; der Tutor gibt weiterhin allgemeine Hinweise.
+  Diagnosezeile; in der Defaultbedingung `provided` gibt der Tutor allgemeine
+  Hinweise. Eine explizite `model`-Bedingung kann dennoch eine unsichere
+  Modellhypothese erzeugen; das ist kein uebernommener PRT-Marker.
 - Variable gelöscht — der `[[if test='debug>0']]`-Block wertet den Test
   symbolisch aus (nicht `true`) und fällt in den leeren Else-Zweig; die
   Frage bricht nicht, es erscheint kein Diagnosecode.
@@ -233,9 +285,12 @@ Hinweisstufen oder in Folgemeldungen. Vollständige Lösungen für Varianten
 erfordern später eine separat verifizierte, zur Variante passende Quelle
 (STACK-/Maxima-Integration) und weiterhin beide Kontext-/Hinweisstufenfreigaben.
 
-Die Diagnose bleibt ausschließlich der PRT-Code; das LLM darf daraus keine
-neue mathematische Bewertung erfinden. `hint_level=1` allein ist kein
-Variantenschutz.
+Die Bridge uebernimmt ausschliesslich den gebundenen PRT-Code oder
+`unknown_error`; sie berechnet keine neue Diagnose. Eine serverseitige
+Modellhypothese ist davon getrennt und keine verbindliche mathematische
+Bewertung. Task-abgeleitete synthetische Testfaelle mit festen Beispielreferenzen
+liefern keine Referenz fuer eine andere Moodle-Zufallsvariante.
+`hint_level=1` allein ist kein Variantenschutz.
 
 ## Prüfung
 
@@ -256,8 +311,10 @@ extrahierten JS-Block in `node:vm` mit gemockter `stack_js`-API aus. Er prüft
 Sandbox-Zugriffe, Parameter-Roundtrips, HTML-Escaping, zufällige Formeldaten,
 fehlende/veraltete/verspätete Diagnosen, die automatische Aktualisierung mit
 gemockten Timern und Fehlerfälle. Er ersetzt **keinen** CASText-/Maxima-Lauf
-und **keinen** echten HTML-Parser-/Moodle-Filtertest. Lokal ausgeführt mit
-`node.exe` v26.9.0: dreizehn Tests erfolgreich.
+und **keinen** echten HTML-Parser-/Moodle-Filtertest. Die fruehere lokale
+Nodeausfuehrung ist kein Nachweis fuer die neue Serverpolicy oder die
+unbekannte installierte Moodle-/STACK-Version; aktuelle Testcounts hier
+bewusst nicht fortschreiben.
 
 Kein Moodle-Zugang vorhanden. Vor Freigabe auf echtem Moodle prüfen:
 

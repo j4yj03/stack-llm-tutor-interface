@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,7 @@ class StackContext(BaseModel):
         default_factory=list
     )
     final_answer: Optional[str] = None
+    diagnosis_source: Optional[Literal["synthetic", "provided", "prt", "stack", "stack_prt", "unknown"]] = None
 
 
 class TutorRequest(BaseModel):
@@ -94,9 +95,9 @@ class TutorRequest(BaseModel):
         None,
         max_length=MAX_CHAT_MESSAGE_LENGTH
     )
-    hint_level: int = Field(
-        1,
-        ge=1,
+    hint_level: Optional[int] = Field(
+        None,
+        ge=0,
         le=MAX_HINT_LEVEL
     )
     model: Optional[str] = None
@@ -122,6 +123,9 @@ class UserChatRequest(BaseModel):
     context_options: ContextOptions = Field(
         default_factory=ContextOptions
     )
+    hint_level: Optional[int] = Field(None, ge=0, le=MAX_HINT_LEVEL)
+    simulation_elapsed_seconds: Optional[float] = Field(None, ge=0, le=86400, allow_inf_nan=False)
+    confusion_signal: Optional[bool] = None
 
 
 class ChatMessage(BaseModel):
@@ -139,6 +143,18 @@ class TutorResponse(BaseModel):
     history: List[ChatMessage]
     prompt_messages: Optional[List[Dict[str, str]]] = None
     context_options: Optional[Dict[str, bool]] = None
+    requested_context_options: Optional[Dict[str, bool]] = None
+    baseline_hint_level: int
+    start_decision: Dict[str, Any] = Field(default_factory=dict)
+    adaptation: Dict[str, Any] = Field(default_factory=dict)
+    hint_policy: Dict[str, Any] = Field(default_factory=dict)
+    configuration: Dict[str, Any] = Field(default_factory=dict)
+    config_sha256: str
+    policy_mode: str
+    stage: str
+    diagnosis_hypothesis: Optional[str] = None
+    start_prompt_messages: Optional[List[Dict[str, str]]] = None
+    llm_operations: int = 1
 
 
 class ChatHistoryResponse(BaseModel):
